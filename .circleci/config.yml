@@ -51,7 +51,7 @@ jobs:
             apt-get install -y nodejs
       - run:
           name: "Checkout server"
-          command: "git clone https://github.com/specklesystems/Server.git server"
+          command: "git clone --single-branch --branch dim/core-test-fixes https://github.com/specklesystems/Server.git server"
       - run:
           working_directory: server
           name: "Install deps"
