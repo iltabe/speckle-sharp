@@ -56,6 +56,10 @@ jobs:
           working_directory: server
           name: "Install deps"
           command: "npm install"
+      - run:
+          working_directory: server
+          name: "Check version out"
+          command: "cat package.json"
       - run: 
           name: "Start server"
           working_directory: server
