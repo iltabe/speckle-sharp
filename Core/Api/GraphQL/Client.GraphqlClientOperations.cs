@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using GraphQL;
@@ -97,7 +98,7 @@ namespace Speckle.Core.Api
                         }
                       }
                     }",
-          Variables = new {query, limit}
+          Variables = new { query, limit }
         };
         var res = await GQLClient.SendQueryAsync<UserSearchData>(request, cancellationToken).ConfigureAwait(false);
 
@@ -179,7 +180,7 @@ namespace Speckle.Core.Api
                         }}
                       }}
                     }}",
-          Variables = new {id}
+          Variables = new { id }
         };
 
         var res = await GQLClient.SendQueryAsync<StreamData>(request, cancellationToken).ConfigureAwait(false);
@@ -305,7 +306,7 @@ namespace Speckle.Core.Api
                         }
                       }     
                     }",
-          Variables = new {query, limit}
+          Variables = new { query, limit }
         };
 
         var res = await GQLClient.SendQueryAsync<StreamsData>(request, cancellationToken).ConfigureAwait(false);
@@ -344,7 +345,7 @@ namespace Speckle.Core.Api
         var request = new GraphQLRequest
         {
           Query = @"mutation streamCreate($myStream: StreamCreateInput!) { streamCreate(stream: $myStream) }",
-          Variables = new {myStream = streamInput}
+          Variables = new { myStream = streamInput }
         };
 
         var res = await GQLClient.SendMutationAsync<Dictionary<string, object>>(request, cancellationToken)
@@ -353,7 +354,7 @@ namespace Speckle.Core.Api
         if (res.Errors != null)
           Log.CaptureAndThrow(new GraphQLException("Could not create stream"), res.Errors);
 
-        return (string) res.Data["streamCreate"];
+        return (string)res.Data["streamCreate"];
       }
       catch (Exception e)
       {
@@ -384,7 +385,7 @@ namespace Speckle.Core.Api
         var request = new GraphQLRequest
         {
           Query = @"mutation streamUpdate($myStream: StreamUpdateInput!) { streamUpdate(stream:$myStream) }",
-          Variables = new {myStream = streamInput}
+          Variables = new { myStream = streamInput }
         };
 
         var res = await GQLClient.SendMutationAsync<Dictionary<string, object>>(request, cancellationToken)
@@ -393,7 +394,7 @@ namespace Speckle.Core.Api
         if (res.Errors != null)
           Log.CaptureAndThrow(new GraphQLException("Could not update stream"), res.Errors);
 
-        return (bool) res.Data["streamUpdate"];
+        return (bool)res.Data["streamUpdate"];
       }
       catch (Exception e)
       {
@@ -423,7 +424,8 @@ namespace Speckle.Core.Api
       {
         var request = new GraphQLRequest
         {
-          Query = @"mutation streamDelete($id: String!) { streamDelete(id:$id) }", Variables = new {id}
+          Query = @"mutation streamDelete($id: String!) { streamDelete(id:$id) }",
+          Variables = new { id }
         };
 
         var res = await GQLClient.SendMutationAsync<Dictionary<string, object>>(request, cancellationToken)
@@ -433,7 +435,7 @@ namespace Speckle.Core.Api
           Log.CaptureAndThrow(new GraphQLException("Could not delete stream"), res.Errors);
 
 
-        return (bool) res.Data["streamDelete"];
+        return (bool)res.Data["streamDelete"];
       }
       catch (Exception e)
       {
@@ -473,7 +475,7 @@ namespace Speckle.Core.Api
           mutation streamGrantPermission($permissionParams: StreamGrantPermissionInput!) {
             streamGrantPermission(permissionParams:$permissionParams)
           }",
-          Variables = new {permissionParams = permissionInput}
+          Variables = new { permissionParams = permissionInput }
         };
 
         var res = await GQLClient.SendMutationAsync<Dictionary<string, object>>(request).ConfigureAwait(false);
@@ -481,7 +483,7 @@ namespace Speckle.Core.Api
         if (res.Errors != null)
           Log.CaptureAndThrow(new GraphQLException("Could not grant permission"), res.Errors);
 
-        return (bool) res.Data["streamGrantPermission"];
+        return (bool)res.Data["streamGrantPermission"];
       }
       catch (Exception e)
       {
@@ -518,7 +520,7 @@ namespace Speckle.Core.Api
             @"mutation streamRevokePermission($permissionParams: StreamRevokePermissionInput!) {
             streamRevokePermission(permissionParams: $permissionParams)
           }",
-          Variables = new {permissionParams = permissionInput}
+          Variables = new { permissionParams = permissionInput }
         };
 
         var res = await GQLClient.SendMutationAsync<Dictionary<string, object>>(request).ConfigureAwait(false);
@@ -526,7 +528,7 @@ namespace Speckle.Core.Api
         if (res.Errors != null)
           Log.CaptureAndThrow(new GraphQLException("Could not revoke permission"), res.Errors);
 
-        return (bool) res.Data["streamRevokePermission"];
+        return (bool)res.Data["streamRevokePermission"];
       }
       catch (Exception e)
       {
@@ -561,7 +563,7 @@ namespace Speckle.Core.Api
         var request = new GraphQLRequest
         {
           Query = @"mutation branchCreate($myBranch: BranchCreateInput!){ branchCreate(branch: $myBranch)}",
-          Variables = new {myBranch = branchInput}
+          Variables = new { myBranch = branchInput }
         };
 
         var res = await GQLClient.SendMutationAsync<Dictionary<string, object>>(request, cancellationToken)
@@ -570,7 +572,7 @@ namespace Speckle.Core.Api
         if (res.Errors != null)
           Log.CaptureAndThrow(new GraphQLException("Could not create branch"), res.Errors);
 
-        return (string) res.Data["branchCreate"];
+        return (string)res.Data["branchCreate"];
       }
       catch (Exception e)
       {
@@ -601,7 +603,7 @@ namespace Speckle.Core.Api
         var request = new GraphQLRequest
         {
           Query = @"mutation branchUpdate($myBranch: BranchUpdateInput!){ branchUpdate(branch: $myBranch)}",
-          Variables = new {myBranch = branchInput}
+          Variables = new { myBranch = branchInput }
         };
 
         var res = await GQLClient.SendMutationAsync<Dictionary<string, object>>(request, cancellationToken)
@@ -610,7 +612,7 @@ namespace Speckle.Core.Api
         if (res.Errors != null)
           Log.CaptureAndThrow(new GraphQLException("Could not update branch"), res.Errors);
 
-        return (bool) res.Data["branchUpdate"];
+        return (bool)res.Data["branchUpdate"];
       }
       catch (Exception e)
       {
@@ -641,7 +643,7 @@ namespace Speckle.Core.Api
         var request = new GraphQLRequest
         {
           Query = @"mutation branchDelete($myBranch: BranchDeleteInput!){ branchDelete(branch: $myBranch)}",
-          Variables = new {myBranch = branchInput}
+          Variables = new { myBranch = branchInput }
         };
 
         var res = await GQLClient.SendMutationAsync<Dictionary<string, object>>(request, cancellationToken)
@@ -650,7 +652,7 @@ namespace Speckle.Core.Api
         if (res.Errors != null)
           Log.CaptureAndThrow(new GraphQLException("Could not delete branch"), res.Errors);
 
-        return (bool) res.Data["branchDelete"];
+        return (bool)res.Data["branchDelete"];
       }
       catch (Exception e)
       {
@@ -698,7 +700,7 @@ namespace Speckle.Core.Api
                         }}                       
                       }}
                     }}",
-          Variables = new {streamId, commitId}
+          Variables = new { streamId, commitId }
         };
 
         var res = await GQLClient.SendQueryAsync<StreamData>(request, cancellationToken).ConfigureAwait(false);
@@ -738,16 +740,16 @@ namespace Speckle.Core.Api
         var request = new GraphQLRequest
         {
           Query = @"mutation commitCreate($myCommit: CommitCreateInput!){ commitCreate(commit: $myCommit)}",
-          Variables = new {myCommit = commitInput}
+          Variables = new { myCommit = commitInput }
         };
 
         var res = await GQLClient.SendMutationAsync<Dictionary<string, object>>(request, cancellationToken)
           .ConfigureAwait(false);
 
         if (res.Errors != null)
-          Log.CaptureAndThrow(new GraphQLException("Could not create commit"), res.Errors);
+          Log.CaptureAndThrow(new GraphQLException("Could not create commit: " + String.Join(", ", res.Errors.Select(err => err.Message))), res.Errors);
 
-        return (string) res.Data["commitCreate"];
+        return (string)res.Data["commitCreate"];
       }
       catch (Exception e)
       {
@@ -778,7 +780,7 @@ namespace Speckle.Core.Api
         var request = new GraphQLRequest
         {
           Query = @"mutation commitUpdate($myCommit: CommitUpdateInput!){ commitUpdate(commit: $myCommit)}",
-          Variables = new {myCommit = commitInput}
+          Variables = new { myCommit = commitInput }
         };
 
         var res = await GQLClient.SendMutationAsync<Dictionary<string, object>>(request, cancellationToken)
@@ -787,7 +789,7 @@ namespace Speckle.Core.Api
         if (res.Errors != null)
           Log.CaptureAndThrow(new GraphQLException("Could not update commit"), res.Errors);
 
-        return (bool) res.Data["commitUpdate"];
+        return (bool)res.Data["commitUpdate"];
       }
       catch (Exception e)
       {
@@ -818,7 +820,7 @@ namespace Speckle.Core.Api
         var request = new GraphQLRequest
         {
           Query = @"mutation commitDelete($myCommit: CommitDeleteInput!){ commitDelete(commit: $myCommit)}",
-          Variables = new {myCommit = commitInput}
+          Variables = new { myCommit = commitInput }
         };
 
         var res = await GQLClient.SendMutationAsync<Dictionary<string, object>>(request, cancellationToken)
@@ -827,7 +829,7 @@ namespace Speckle.Core.Api
         if (res.Errors != null)
           Log.CaptureAndThrow(new GraphQLException("Could not delete commit"), res.Errors);
 
-        return (bool) res.Data["commitDelete"];
+        return (bool)res.Data["commitDelete"];
       }
       catch (Exception e)
       {
@@ -874,7 +876,7 @@ namespace Speckle.Core.Api
                         }}                       
                       }}
                     }}",
-          Variables = new {streamId, objectId}
+          Variables = new { streamId, objectId }
         };
 
         var res = await GQLClient.SendQueryAsync<StreamData>(request, cancellationToken).ConfigureAwait(false);
@@ -922,7 +924,7 @@ namespace Speckle.Core.Api
                         }}                       
                       }}
                     }}",
-          Variables = new {streamId, objectId}
+          Variables = new { streamId, objectId }
         };
 
         var res = await GQLClient.SendQueryAsync<StreamData>(request, cancellationToken).ConfigureAwait(false);
