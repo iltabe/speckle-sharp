@@ -70,6 +70,8 @@ namespace TestsIntegration.Subscriptions
 
       var objectId = await Operations.Send(myObject, new List<ITransport>() { myServerTransport }, false);
 
+      Thread.Sleep(1000);
+
       var commitInput = new CommitCreateInput
       {
         streamId = streamId,
