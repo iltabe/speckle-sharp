@@ -7,7 +7,7 @@
 
 ## Introduction
 
-This repo holds Speckle's Dynamo Connector and it is currently released as ⚠ **ALPHA** ⚠, please use at your own risk!
+This folder holds Speckle's Dynamo Connector and it is currently released as ⚠ **ALPHA** ⚠, please use at your own risk!
 
 The connector is structured in 3 c# projects:
 
@@ -37,12 +37,7 @@ Following instructions on how to get started debugging and contributing to this 
 
 #### Dependencies
 
-The c# projects have local dependencies, in the future these will be referenced as NuGet packages, but for the time being **make sure also to clone the following repos** in a folder adjacent to the one of this repo:
-
-- https://github.com/specklesystems/Core
-- https://github.com/specklesystems/Objects
-
-It'd be a good solution to just clone all the Speckle repos you're working on in one folder.
+All the dependencies of this connector are included in the repo and locally referenced or are referenced via NuGet.
 
 #### Server
 
@@ -183,7 +178,7 @@ Hey, this is an alpha release, I'm sure you'll have plenty of feedback, and we w
 
 ## Contributing
 
-Please make sure you read the [contribution guidelines](.github/CONTRIBUTING.md) for an overview of the best practices we try to follow.
+Please make sure you read the [contribution guidelines](../.github/CONTRIBUTING.md) for an overview of the best practices we try to follow.
 
 
 
