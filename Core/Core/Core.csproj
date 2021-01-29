@@ -47,4 +47,9 @@
     <Compile Remove="Core\Account.cs" />
     <Compile Remove="Core\User.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <None Update="Speckle_Lib.py">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
 </Project>
