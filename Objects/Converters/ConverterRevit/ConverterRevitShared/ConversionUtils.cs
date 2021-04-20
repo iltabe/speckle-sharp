@@ -1,11 +1,11 @@
-﻿using Autodesk.Revit.DB;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using Autodesk.Revit.DB;
 using Objects.BuiltElements;
 using Objects.BuiltElements.Revit;
 using Objects.Other;
 using Speckle.Core.Models;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using DB = Autodesk.Revit.DB;
 using ElementType = Autodesk.Revit.DB.ElementType;
 using Floor = Objects.BuiltElements.Floor;
@@ -18,8 +18,6 @@ namespace Objects.Converter.Revit
   {
 
     #region hosted elements
-
-
 
     private bool ShouldConvertHostedElement(DB.Element element, DB.Element host)
     {
@@ -85,7 +83,10 @@ namespace Objects.Converter.Revit
 
       if (convertedHostedElements.Any())
       {
-        @base["elements"] = convertedHostedElements;
+        if (@base["elements"] == null || !(@base["elements"] is List<Base>))
+          @base["elements"] = new List<Base>();
+
+        (@base["elements"] as List<Base>).AddRange(convertedHostedElements);
       }
 
     }
@@ -106,7 +107,7 @@ namespace Objects.Converter.Revit
 
           if (!CanConvertToNative(obj))
           {
-            ConversionErrors.Add(new Error { message = $"Skipping {obj.speckle_type}, not supported" });
+            ConversionErrors.Add(new Exception($"Skipping not supported type: {obj.speckle_type}"));
             continue;
           }
 
@@ -124,7 +125,7 @@ namespace Objects.Converter.Revit
           }
           catch (Exception e)
           {
-            ConversionErrors.Add(new Error { message = $"Failed to create hosted element {obj.speckle_type} in host ({host.Id}): \n{e.Message}" });
+            ConversionErrors.Add(new Exception($"Failed to create hosted element {obj.speckle_type} in host ({host.Id}): \n{e.Message}"));
           }
         }
 
@@ -134,7 +135,6 @@ namespace Objects.Converter.Revit
     }
 
     #endregion
-
 
     #region parameters
 
@@ -212,7 +212,6 @@ namespace Objects.Converter.Revit
 
     }
 
-
     //rp must HaveValue
     private Parameter ParameterToSpeckle(DB.Parameter rp, bool isTypeParameter = false)
     {
@@ -257,16 +256,15 @@ namespace Objects.Converter.Revit
           if (sp.value == null)
             sp.value = rp.AsValueString();
           break;
-        //case StorageType.ElementId:
-        //  // NOTE: if this collects too much garbage, maybe we can ignore it
-        //  var id = rp.AsElementId();
-        //  var e = Doc.GetElement(id);
-        //  if (e != null && CanConvertToSpeckle(e))
-        //    sp.value = ConvertToSpeckle(e);
-        //  break;
+        // case StorageType.ElementId:
+        //   // NOTE: if this collects too much garbage, maybe we can ignore it
+        //   var id = rp.AsElementId();
+        //   var e = Doc.GetElement(id);
+        //   if (e != null && CanConvertToSpeckle(e))
+        //     sp.value = ConvertToSpeckle(e);
+        //   break;
         default:
           return null;
-          break;
       }
       return sp;
     }
@@ -282,11 +280,9 @@ namespace Objects.Converter.Revit
       if (revitElement == null)
         return;
 
-
       var speckleParameters = speckleElement["parameters"] as List<Parameter>;
       if (speckleParameters == null || !speckleParameters.Any())
         return;
-
 
       // NOTE: we are using the ParametersMap here and not Parameters, as it's a much smaller list of stuff and 
       // Parameters most likely contains extra (garbage) stuff that we don't need to set anyways
@@ -302,7 +298,7 @@ namespace Objects.Converter.Revit
 
       //only loop params we can set and that actually exist on the revit element
       var filteredSpeckleParameters = speckleParameters.Where(x => !x.isReadOnly &&
-      (revitParameterById.ContainsKey(x.applicationId) || revitParameterByName.ContainsKey(x.name)));
+        (revitParameterById.ContainsKey(x.applicationId) || revitParameterByName.ContainsKey(x.name)));
 
       foreach (var sp in filteredSpeckleParameters)
       {
@@ -391,8 +387,6 @@ namespace Objects.Converter.Revit
       }
     }
 
-
-
     #endregion
 
     #region  element types
@@ -417,7 +411,7 @@ namespace Objects.Converter.Revit
       match = types.FirstOrDefault(x => x.FamilyName == family);
       if (match != null)
       {
-        ConversionErrors.Add(new Error($"Missing type: {family} {type}", $"Type was replace with: {match.FamilyName} - {match.Name}"));
+        ConversionErrors.Add(new Exception($"Missing type: {family} {type}\nType was replace with: {match.FamilyName} - {match.Name}"));
         if (match != null)
         {
           if (match is FamilySymbol fs && !fs.IsActive)
@@ -433,7 +427,7 @@ namespace Objects.Converter.Revit
       if (types.Any())
       {
         match = types.FirstOrDefault();
-        ConversionErrors.Add(new Error($"Missing family and type", $"The following family and type were used: {match.FamilyName} - {match.Name}"));
+        ConversionErrors.Add(new Exception($"Missing family and type\nThe following family and type were used: {match.FamilyName} - {match.Name}"));
         if (match != null)
         {
           if (match is FamilySymbol fs && !fs.IsActive)
@@ -445,14 +439,13 @@ namespace Objects.Converter.Revit
         }
       }
 
-      throw new Exception($"Could not find any family symbol to use.");
+      throw new Speckle.Core.Logging.SpeckleException($"Could not find any family symbol to use.");
     }
 
     private T GetElementType<T>(Base element)
     {
       List<ElementType> types = new List<ElementType>();
       ElementFilter filter = GetCategoryFilter(element);
-
 
       if (filter != null)
       {
@@ -465,7 +458,7 @@ namespace Objects.Converter.Revit
 
       if (types.Count == 0)
       {
-        throw new Exception($"Could not find any type symbol to use for family {nameof(T)}.");
+        throw new Speckle.Core.Logging.SpeckleException($"Could not find any type symbol to use for family {nameof(T)}.");
       }
 
       var family = element["family"] as string;
@@ -478,29 +471,31 @@ namespace Objects.Converter.Revit
       //  match = types.First();
       //}
 
-      if (family != null && type != null)
+      if (!string.IsNullOrEmpty(family) && !string.IsNullOrEmpty(type))
       {
         match = types.FirstOrDefault(x => x.FamilyName == family && x.Name == type);
       }
 
       //some elements only have one family so we didn't add such prop our schema
-      if (match == null && family == null && type != null)
+      if (match == null && string.IsNullOrEmpty(family) && !string.IsNullOrEmpty(type))
       {
         match = types.FirstOrDefault(x => x.Name == type);
       }
 
-      if (match == null && family != null) // try and match the family only.
+      if (match == null && !string.IsNullOrEmpty(family)) // try and match the family only.
       {
         match = types.FirstOrDefault(x => x.FamilyName == family);
         if (match != null) //inform user that the type is different!
-          ConversionErrors.Add(new Error($"Missing type. Family: {family} Type: {type}", $"Type was replaced with: {match.FamilyName}, {match.Name}"));
+          ConversionErrors.Add(new Exception($"Missing type. Family: {family} Type: {type}\nType was replaced with: {match.FamilyName}, {match.Name}"));
 
       }
-
       if (match == null) // okay, try something!
       {
-        match = types.First();
-        ConversionErrors.Add(new Error($"Missing type. Family: {family} Type: {type}", $"Type was replaced with: {match.FamilyName}, {match.Name}"));
+        if (element is BuiltElements.Wall) // specifies the basic wall sub type as default
+          match = types.Cast<WallType>().Where(o => o.Kind == WallKind.Basic).Cast<ElementType>().FirstOrDefault();
+        if (match == null)
+          match = types.First();
+        ConversionErrors.Add(new Exception($"Missing type. Family: {family} Type: {type}\nType was replaced with: {match.FamilyName}, {match.Name}"));
       }
 
       if (match is FamilySymbol fs && !fs.IsActive)
@@ -510,7 +505,6 @@ namespace Objects.Converter.Revit
 
       return (T)(object)match;
     }
-
 
     private ElementFilter GetCategoryFilter(Base element)
     {
@@ -610,7 +604,6 @@ namespace Objects.Converter.Revit
     /// Rant end
     ////////////////////////////////////////////////
 
-
     private BetterBasePoint _basePoint;
     private BetterBasePoint BasePoint
     {
@@ -672,9 +665,7 @@ namespace Objects.Converter.Revit
     }
     #endregion
 
-
     #region Floor/ceiling/roof openings
-
 
     //a floor/roof/ceiling outline can have "voids/holes" for 3 reasons:
     // - there is a shaft cutting through it > we don't need to create an opening (the shaft will be created on its own)
@@ -745,9 +736,7 @@ namespace Objects.Converter.Revit
       return false;
     }
 
-
     #endregion
-
 
     public WallLocationLine GetWallLocationLine(LocationLine location)
     {
@@ -768,8 +757,8 @@ namespace Objects.Converter.Revit
     {
       RenderMaterial material = null;
       var matId = element.GetMaterialIds(false).FirstOrDefault();
-      
-      if(matId == null)
+
+      if (matId == null)
       {
         // TODO: Fallback to display color or something? 
         return material;
@@ -779,7 +768,7 @@ namespace Objects.Converter.Revit
       material = new RenderMaterial();
       material.opacity = 1 - revitMaterial.Transparency / 100f;
       material.diffuse = System.Drawing.Color.FromArgb(revitMaterial.Color.Red, revitMaterial.Color.Green, revitMaterial.Color.Blue).ToArgb();
-      
+
       return material;
     }
   }

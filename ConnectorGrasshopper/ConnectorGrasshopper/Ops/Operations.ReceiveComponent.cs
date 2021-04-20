@@ -37,6 +37,8 @@ namespace ConnectorGrasshopper.Ops
     public ReceiveComponent() : base("Receive", "Receive", "Receive data from a Speckle server", ComponentCategories.PRIMARY_RIBBON,
       ComponentCategories.SEND_RECEIVE)
     {
+      Tracker.TrackPageview(Tracker.RECEIVE_ADDED);
+
       BaseWorker = new ReceiveComponentWorker(this);
       Attributes = new ReceiveComponentAttributes(this);
       SetDefaultKitAndConverter();
@@ -75,23 +77,23 @@ namespace ConnectorGrasshopper.Ops
       switch (context)
       {
         case GH_DocumentContext.Loaded:
-        {
-          // Will execute every time a document becomes active (from background or opening file.).
-          if (StreamWrapper != null)
-            Task.Run(async () =>
-            {
-              // Ensure fresh instance of client.
-              await ResetApiClient(StreamWrapper);
+          {
+            // Will execute every time a document becomes active (from background or opening file.).
+            if (StreamWrapper != null)
+              Task.Run(async () =>
+              {
+                // Ensure fresh instance of client.
+                await ResetApiClient(StreamWrapper);
 
-              // Get last commit from the branch
-              var b = ApiClient.BranchGet(BaseWorker.CancellationToken , StreamWrapper.StreamId, StreamWrapper.BranchName ?? "main", 1).Result;
+                // Get last commit from the branch
+                var b = ApiClient.BranchGet(BaseWorker.CancellationToken, StreamWrapper.StreamId, StreamWrapper.BranchName ?? "main", 1).Result;
 
-              // Compare commit id's. If they don't match, notify user or fetch data if in auto mode
-              if (b.commits.items[0].id != ReceivedCommitId)
-                HandleNewCommit();
-            });
-          break;
-        }
+                // Compare commit id's. If they don't match, notify user or fetch data if in auto mode
+                if (b.commits.items[0].id != ReceivedCommitId)
+                  HandleNewCommit();
+              });
+            break;
+          }
         case GH_DocumentContext.Unloaded:
           // Will execute every time a document becomes inactive (in background or closing file.)
           //Correctly dispose of the client when changing documents to prevent subscription handlers being called in background.
@@ -108,13 +110,13 @@ namespace ConnectorGrasshopper.Ops
       CurrentComponentState = "expired";
       AddRuntimeMessage(GH_RuntimeMessageLevel.Remark, $"There is a newer commit available for this {InputType}");
 
-      RhinoApp.InvokeOnUiThread((Action) delegate
-      {
-        if (AutoReceive)
-          ExpireSolution(true);
-        else
-          OnDisplayExpired(true);
-      });
+      RhinoApp.InvokeOnUiThread((Action)delegate
+     {
+       if (AutoReceive)
+         ExpireSolution(true);
+       else
+         OnDisplayExpired(true);
+     });
     }
 
     public override bool Write(GH_IWriter writer)
@@ -196,7 +198,7 @@ namespace ConnectorGrasshopper.Ops
         var autoReceiveMi = Menu_AppendItem(menu, "Receive automatically", (s, e) =>
         {
           AutoReceive = !AutoReceive;
-          RhinoApp.InvokeOnUiThread((Action) delegate { OnDisplayExpired(true); });
+          RhinoApp.InvokeOnUiThread((Action)delegate { OnDisplayExpired(true); });
         }, true, AutoReceive);
         autoReceiveMi.ToolTipText =
           "Toggle automatic receiving. If set, any upstream change will be pulled instantly. This only is applicable when receiving a stream or a branch.";
@@ -207,6 +209,17 @@ namespace ConnectorGrasshopper.Ops
           "Automatic receiving is disabled because you have specified a direct commit.");
         autoReceiveMi.ToolTipText =
           "To enable automatic receiving, you need to input a stream rather than a specific commit.";
+      }
+
+      Menu_AppendSeparator(menu);
+
+      if (CurrentComponentState == "receiving")
+      {
+        Menu_AppendItem(menu, "Cancel Receive", (s, e) =>
+        {
+          CurrentComponentState = "expired";
+          RequestCancellation();
+        });
       }
 
       base.AppendAdditionalComponentMenuItems(menu);
@@ -276,13 +289,13 @@ namespace ConnectorGrasshopper.Ops
       var total = 0.0;
       foreach (var kvp in ProgressReports)
       {
-        Message += $"{kvp.Key}: {kvp.Value:0.00%}\n";
+        Message += $"{kvp.Key}: {kvp.Value}";
+        //NOTE: progress set to indeterminate until the TotalChildrenCount is correct
         total += kvp.Value;
       }
-
       OverallProgress = total / ProgressReports.Keys.Count();
 
-      RhinoApp.InvokeOnUiThread((Action) delegate { OnDisplayExpired(true); });
+      RhinoApp.InvokeOnUiThread((Action)delegate { OnDisplayExpired(true); });
     }
 
     public override void RemovedFromDocument(GH_Document document)
@@ -365,10 +378,11 @@ namespace ConnectorGrasshopper.Ops
       {
         // NOTE: Handled in do work
       }
-      
-      StreamWrapper = wrapper;
 
-      if (StreamWrapper != null && wrapper.StreamId == StreamWrapper.StreamId && !JustPastedIn) return;
+
+
+      if (StreamWrapper != null && StreamWrapper.Equals(wrapper) && !JustPastedIn) return;
+      StreamWrapper = wrapper;
 
       //ResetApiClient(wrapper);
       Task.Run(async () =>
@@ -429,27 +443,48 @@ namespace ConnectorGrasshopper.Ops
 
     public override void GetData(IGH_DataAccess DA, GH_ComponentParamServer Params)
     {
-      InputWrapper = ((ReceiveComponent) Parent).StreamWrapper;
+      InputWrapper = ((ReceiveComponent)Parent).StreamWrapper;
     }
 
     public override void DoWork(Action<string, double> ReportProgress, Action Done)
     {
-      var receiveComponent = ((ReceiveComponent) Parent);
+      var receiveComponent = ((ReceiveComponent)Parent);
       try
       {
         InternalProgressAction = dict =>
         {
-          foreach (var kvp in dict) ReportProgress(kvp.Key, (double) kvp.Value / (TotalObjectCount + 1));
+          //NOTE: progress set to indeterminate until the TotalChildrenCount is correct
+          //foreach (var kvp in dict) ReportProgress(kvp.Key, (double)kvp.Value / (TotalObjectCount + 1));
+          foreach (var kvp in dict) ReportProgress(kvp.Key, (double)kvp.Value);
         };
 
         ErrorAction = (transportName, exception) =>
         {
-          RuntimeMessages.Add((GH_RuntimeMessageLevel.Warning, $"{transportName}: {exception.Message}"));
-          var asyncParent = (GH_AsyncComponent) Parent;
-          asyncParent.CancellationSources.ForEach(source => source.Cancel());
+          // TODO: This message condition should be removed once the `link sharing` issue is resolved server-side.
+          var msg = exception.Message.Contains("401")
+            ? "You don't have access to this stream/transport , or it doesn't exist."
+            : exception.Message;
+          RuntimeMessages.Add((GH_RuntimeMessageLevel.Error, $"{transportName}: { msg }"));
+          Done();
+          var asyncParent = (GH_AsyncComponent)Parent;
+          asyncParent.CancellationSources.ForEach(source =>
+          {
+            if (source.Token != CancellationToken)
+              source.Cancel();
+          });
         };
 
-        var client = new Client(InputWrapper?.GetAccount().Result);
+        Client client = null;
+        try
+        {
+          client = new Client(InputWrapper?.GetAccount().Result);
+        }
+        catch (Exception e)
+        {
+          RuntimeMessages.Add((GH_RuntimeMessageLevel.Warning, e.InnerException?.Message ?? e.Message));
+          Done();
+          return;
+        }
         var remoteTransport = new ServerTransport(InputWrapper?.GetAccount().Result, InputWrapper?.StreamId);
         remoteTransport.TransportName = "R";
 
@@ -462,7 +497,7 @@ namespace ConnectorGrasshopper.Ops
               receiveComponent.ReceivedObjectId,
               CancellationToken,
               remoteTransport,
-              new SQLiteTransport {TransportName = "LC"}, // Local cache!
+              new SQLiteTransport { TransportName = "LC" }, // Local cache!
               InternalProgressAction,
               ErrorAction,
               count => TotalObjectCount = count
@@ -495,7 +530,7 @@ namespace ConnectorGrasshopper.Ops
               Done();
               return;
             }
-          if(InputWrapper.ObjectId != null)
+          if (InputWrapper.ObjectId != null)
           {
             myCommit = new Commit() { referencedObject = InputWrapper.ObjectId };
           }
@@ -522,7 +557,7 @@ namespace ConnectorGrasshopper.Ops
             myCommit.referencedObject,
             CancellationToken,
             remoteTransport,
-            new SQLiteTransport {TransportName = "LC"}, // Local cache!
+            new SQLiteTransport { TransportName = "LC" }, // Local cache!
             InternalProgressAction,
             ErrorAction,
             count => TotalObjectCount = count
@@ -538,11 +573,9 @@ namespace ConnectorGrasshopper.Ops
       {
         // If we reach this, something happened that we weren't expecting...
         Log.CaptureException(e);
-        Parent.AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "Something went terribly wrong... " + e.Message);
-        Parent.Message = "Error";
-        receiveComponent.CurrentComponentState = "up_to_date";
-        receiveComponent.JustPastedIn = false;
-        RhinoApp.InvokeOnUiThread(new Action(()=> receiveComponent.OnDisplayExpired(true)));
+        var msg = e.InnerException?.Message ?? e.Message;
+        RuntimeMessages.Add((GH_RuntimeMessageLevel.Error, msg));
+        Done();
       }
     }
 
@@ -552,31 +585,31 @@ namespace ConnectorGrasshopper.Ops
 
       foreach (var (level, message) in RuntimeMessages) Parent.AddRuntimeMessage(level, message);
 
-      ((ReceiveComponent) Parent).CurrentComponentState = "up_to_date";
+      ((ReceiveComponent)Parent).CurrentComponentState = "up_to_date";
 
       if (ReceivedCommit != null)
       {
-        ((ReceiveComponent) Parent).LastInfoMessage =
+        ((ReceiveComponent)Parent).LastInfoMessage =
           $"{ReceivedCommit.authorName} @ {ReceivedCommit.createdAt}: {ReceivedCommit.message} (id:{ReceivedCommit.id})";
 
-        ((ReceiveComponent) Parent).ReceivedCommitId = ReceivedCommit.id;
+        ((ReceiveComponent)Parent).ReceivedCommitId = ReceivedCommit.id;
       }
 
-      ((ReceiveComponent) Parent).JustPastedIn = false;
+      ((ReceiveComponent)Parent).JustPastedIn = false;
 
-      DA.SetData(1, ((ReceiveComponent) Parent).LastInfoMessage);
+      DA.SetData(1, ((ReceiveComponent)Parent).LastInfoMessage);
 
       if (ReceivedObject == null) return;
 
-      ((ReceiveComponent) Parent).ReceivedObjectId = ReceivedObject.id;
+      ((ReceiveComponent)Parent).ReceivedObjectId = ReceivedObject.id;
 
       //the active document may have changed
-      ((ReceiveComponent) Parent).Converter.SetContextDocument(RhinoDoc.ActiveDoc);
+      ((ReceiveComponent)Parent).Converter.SetContextDocument(RhinoDoc.ActiveDoc);
 
       // case 1: it's an item that has a direct conversion method, eg a point
-      if (((ReceiveComponent) Parent).Converter.CanConvertToNative(ReceivedObject))
+      if (((ReceiveComponent)Parent).Converter.CanConvertToNative(ReceivedObject))
       {
-        DA.SetData(0, Utilities.TryConvertItemToNative(ReceivedObject, ((ReceiveComponent) Parent).Converter));
+        DA.SetData(0, Utilities.TryConvertItemToNative(ReceivedObject, ((ReceiveComponent)Parent).Converter));
         return;
       }
 
@@ -588,7 +621,7 @@ namespace ConnectorGrasshopper.Ops
 
       if (members.Count() == 1)
       {
-        var treeBuilder = new TreeBuilder(((ReceiveComponent) Parent).Converter);
+        var treeBuilder = new TreeBuilder(((ReceiveComponent)Parent).Converter);
         var tree = treeBuilder.Build(ReceivedObject[members.ElementAt(0)]);
 
         DA.SetDataTree(0, tree);
@@ -601,7 +634,7 @@ namespace ConnectorGrasshopper.Ops
       // then run the treebuilder for each port
 
 
-      DA.SetData(0, new GH_SpeckleBase {Value = ReceivedObject});
+      DA.SetData(0, new GH_SpeckleBase { Value = ReceivedObject });
     }
   }
 
@@ -645,11 +678,11 @@ namespace ConnectorGrasshopper.Ops
     {
       base.Render(canvas, graphics, channel);
 
-      var state = ((ReceiveComponent) Owner).CurrentComponentState;
+      var state = ((ReceiveComponent)Owner).CurrentComponentState;
 
       if (channel == GH_CanvasChannel.Objects)
       {
-        if (((ReceiveComponent) Owner).AutoReceive)
+        if (((ReceiveComponent)Owner).AutoReceive)
         {
           var autoSendButton =
             GH_Capsule.CreateTextCapsule(ButtonBounds, ButtonBounds, GH_Palette.Blue, "Auto Receive", 2, 0);
@@ -660,7 +693,9 @@ namespace ConnectorGrasshopper.Ops
         else
         {
           var palette = state == "expired" || state == "up_to_date" ? GH_Palette.Black : GH_Palette.Transparent;
-          var text = state == "receiving" ? $"{((ReceiveComponent) Owner).OverallProgress:0.00%}" : "Receive";
+          //NOTE: progress set to indeterminate until the TotalChildrenCount is correct
+          //var text = state == "receiving" ? $"{((ReceiveComponent)Owner).OverallProgress}" : "Receive";
+          var text = state == "receiving" ? $"Receiving..." : "Receive";
 
           var button = GH_Capsule.CreateTextCapsule(ButtonBounds, ButtonBounds, palette, text, 2,
             state == "expired" ? 10 : 0);
@@ -673,20 +708,20 @@ namespace ConnectorGrasshopper.Ops
     public override GH_ObjectResponse RespondToMouseDown(GH_Canvas sender, GH_CanvasMouseEvent e)
     {
       if (e.Button != MouseButtons.Left) return base.RespondToMouseDown(sender, e);
-      if (!((RectangleF) ButtonBounds).Contains(e.CanvasLocation)) return base.RespondToMouseDown(sender, e);
+      if (!((RectangleF)ButtonBounds).Contains(e.CanvasLocation)) return base.RespondToMouseDown(sender, e);
 
-      if (((ReceiveComponent) Owner).CurrentComponentState == "receiving") return GH_ObjectResponse.Handled;
+      if (((ReceiveComponent)Owner).CurrentComponentState == "receiving") return GH_ObjectResponse.Handled;
 
-      if (((ReceiveComponent) Owner).AutoReceive)
+      if (((ReceiveComponent)Owner).AutoReceive)
       {
-        ((ReceiveComponent) Owner).AutoReceive = false;
+        ((ReceiveComponent)Owner).AutoReceive = false;
         Owner.OnDisplayExpired(true);
         return GH_ObjectResponse.Handled;
       }
 
       // TODO: check if owner has null account/client, and call the reset thing SYNC 
 
-      ((ReceiveComponent) Owner).CurrentComponentState = "primed_to_receive";
+      ((ReceiveComponent)Owner).CurrentComponentState = "primed_to_receive";
       Owner.ExpireSolution(true);
       return GH_ObjectResponse.Handled;
     }

@@ -7,12 +7,14 @@ using System.Text;
 
 namespace Objects.BuiltElements
 {
-  public class Brace : Base
+  public class Brace : Base, IDisplayMesh
   {
     public ICurve baseLine { get; set; }
 
-    public Brace() { }
+    [DetachProperty]
+    public Mesh displayMesh { get; set; }
 
+    public Brace() { }
 
     [SchemaInfo("Brace", "Creates a Speckle brace")]
     public Brace(ICurve baseLine)
@@ -24,7 +26,6 @@ namespace Objects.BuiltElements
 
 namespace Objects.BuiltElements.Revit
 {
-
   public class RevitBrace : Brace
   {
     public string family { get; set; }
@@ -33,10 +34,7 @@ namespace Objects.BuiltElements.Revit
     public string elementId { get; set; }
     public Level level { get; set; }
 
-    public RevitBrace()
-    {
-
-    }
+    public RevitBrace() { }
 
     [SchemaInfo("RevitBrace", "Creates a Revit brace by curve and base level.")]
     public RevitBrace(string family, string type, ICurve baseLine, Level level, List<Parameter> parameters = null)
@@ -46,7 +44,6 @@ namespace Objects.BuiltElements.Revit
       this.baseLine = baseLine;
       this.parameters = parameters;
       this.level = level;
-
     }
   }
 }

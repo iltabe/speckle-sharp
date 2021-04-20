@@ -27,6 +27,11 @@ namespace ConnectorGrasshopper.Objects
       "Allows you to decompose a Speckle object in its constituent parts.",
       ComponentCategories.PRIMARY_RIBBON, ComponentCategories.OBJECTS)
     {
+    }
+
+    public override void AddedToDocument(GH_Document document)
+    {
+      base.AddedToDocument(document);
       BaseWorker = new ExpandSpeckleObjectWorker(this, Converter);
     }
 
@@ -215,7 +220,7 @@ namespace ConnectorGrasshopper.Objects
         if (speckleObjects.get_Branch(path).Count == 0) continue;
         // Loop through all dynamic properties
         var baseGoo = speckleObjects.get_DataItem(path, 0) as GH_SpeckleBase;
-        if (baseGoo == null)
+        if (baseGoo == null || baseGoo.Value == null)
         {
           continue;
         }

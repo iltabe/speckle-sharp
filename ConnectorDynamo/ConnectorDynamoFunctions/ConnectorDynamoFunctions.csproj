@@ -88,22 +88,14 @@
       <Name>Core</Name>
     </ProjectReference>
     <ProjectReference Include="..\..\Core\Transports\DiskTransport\DiskTransport.csproj">
-      <Project>{941aac33-a406-4ae7-9930-67ffdb746d9d}</Project>
+      <Project>{485aacf5-f27c-427c-ad55-719062e6bd0b}</Project>
       <Name>DiskTransport</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\..\Core\Transports\ServerTransport\ServerTransport.csproj">
-      <Project>{82f74946-6c04-4ae3-bfb9-f09e68cdfe12}</Project>
-      <Name>ServerTransport</Name>
-      <Private>False</Private>
-    </ProjectReference>
-    <ProjectReference Include="..\..\Core\Transports\ServerTransport\ServerTransport.csproj">
-      <Project>{82f74946-6c04-4ae3-bfb9-f09e68cdfe12}</Project>
-      <Name>ServerTransport</Name>
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="DynamoVisualProgramming.Core">
       <Version>2.8.0.2471</Version>
+      <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
@@ -116,6 +108,9 @@
     <None Include="Resources\accountdetails%4032.png" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <Target Name="Clean">
+    <RemoveDir Directories="$(TargetDir)" />
+  </Target>
   <Target Name="AfterBuild">
     <!-- Icons stuff -->
     <!-- Get System.Drawing.dll -->

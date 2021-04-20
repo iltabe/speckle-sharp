@@ -11,6 +11,7 @@ using Grasshopper;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Data;
 using Rhino.Geometry;
+using System.Threading;
 
 namespace ConnectorGrasshopper.Extras
 {
@@ -18,14 +19,22 @@ namespace ConnectorGrasshopper.Extras
   {
     public static List<object> DataTreeToNestedLists(GH_Structure<IGH_Goo> dataInput, ISpeckleConverter converter, Action OnConversionProgress = null)
     {
+      return DataTreeToNestedLists(dataInput, converter, CancellationToken.None, OnConversionProgress);
+    }
+
+    public static List<object> DataTreeToNestedLists(GH_Structure<IGH_Goo> dataInput, ISpeckleConverter converter, CancellationToken cancellationToken, Action OnConversionProgress = null)
+    {
       var output = new List<object>();
       for (var i = 0; i < dataInput.Branches.Count; i++)
       {
+        if (cancellationToken.IsCancellationRequested) return output;
+
         var path = dataInput.Paths[i].Indices.ToList();
         var leaves = new List<object>(); 
         
         foreach(var goo in dataInput.Branches[i])
         {
+        if (cancellationToken.IsCancellationRequested) return output;
           OnConversionProgress?.Invoke();
           leaves.Add(TryConvertItemToSpeckle(goo, converter));
         }
@@ -125,7 +134,7 @@ namespace ConnectorGrasshopper.Extras
     {
       object result = null;
 
-      if (value is null) throw new Speckle.Core.Logging.SpeckleException("Null values are not supported, please clean your data tree.");
+      if (value is null) throw new Exception("Null values are not allowed, please clean your data tree.");
       
       if (value is IGH_Goo)
       {
@@ -141,9 +150,7 @@ namespace ConnectorGrasshopper.Extras
       {
         return converter.ConvertToSpeckle(value);
       }
-
-
-
+      
       return result;
     }
 

@@ -1,12 +1,12 @@
-﻿using Objects.Primitive;
-using Speckle.Core.Kits;
-using Speckle.Core.Models;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using Speckle.Newtonsoft.Json;
+using Objects.Primitive;
+using Speckle.Core.Kits;
 using Speckle.Core.Logging;
+using Speckle.Core.Models;
+using Speckle.Newtonsoft.Json;
 
 namespace Objects.Geometry
 {
@@ -28,16 +28,16 @@ namespace Objects.Geometry
       {
         start = new Point(value[0], value[1], value[2]);
         end = new Point(value[3], value[4], value[5]);
-      } 
+      }
     }
-    
+
     public Interval domain { get; set; }
 
     public Box bbox { get; set; }
 
     public double area { get; set; }
     public double length { get; set; }
-    
+
     public Point start { get; set; }
     public Point end { get; set; }
     public Line() { }
@@ -69,6 +69,27 @@ namespace Objects.Geometry
       this.units = units;
     }
 
-    public List<double> ToList() => start.ToList().Concat(end.ToList()).ToList();
+    public List<double> ToList()
+    {
+      var list = new List<double>();
+      list.AddRange(start.ToList());
+      list.AddRange(end.ToList());
+      list.Add( domain.start ?? 0);
+      list.Add(domain.end ?? 1);
+      list.Add(Units.GetEncodingFromUnit(units));
+      list.Insert(0, CurveTypeEncoding.Line);
+      list.Insert(0, list.Count);
+      return list;
+    }
+
+    public static Line FromList(List<double> list)
+    {
+      var units = Units.GetUnitFromEncoding(list[list.Count - 1]);
+      var startPt = new Point(list[2], list[3], list[4], units);
+      var endPt = new Point(list[5], list[6], list[7], units);
+      var line = new Line(startPt, endPt, units);
+      line.domain = new Interval(list[8], list[9]);
+      return line;
+    }
   }
 }

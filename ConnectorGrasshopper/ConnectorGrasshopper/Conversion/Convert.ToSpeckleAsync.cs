@@ -1,4 +1,9 @@
-﻿using ConnectorGrasshopper.Extras;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Windows.Forms;
+using ConnectorGrasshopper.Extras;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Data;
@@ -7,10 +12,6 @@ using GrasshopperAsyncComponent;
 using Speckle.Core.Kits;
 using Speckle.Core.Logging;
 using Speckle.Core.Models;
-using System;
-using System.Linq;
-using System.Threading;
-using System.Windows.Forms;
 using Utilities = ConnectorGrasshopper.Extras.Utilities;
 
 namespace ConnectorGrasshopper.Conversion
@@ -30,7 +31,7 @@ namespace ConnectorGrasshopper.Conversion
     public ToSpeckleConverterAsync() : base("To Speckle", "To Speckle", "Convert data from Rhino to their Speckle Base equivalent.", ComponentCategories.SECONDARY_RIBBON, ComponentCategories.CONVERSION)
     {
       SetDefaultKitAndConverter();
-      BaseWorker = new ToSpeckleWorker(Converter);
+      BaseWorker = new ToSpeckleWorker(Converter, this);
     }
 
     public override void AppendAdditionalMenuItems(ToolStripDropDown menu)
@@ -65,7 +66,7 @@ namespace ConnectorGrasshopper.Conversion
 
     private void SetConverterFromKit(string kitName)
     {
-      if (kitName == Kit.Name) return;
+      if (kitName == Kit.Name)return;
 
       Kit = KitManager.Kits.FirstOrDefault(k => k.Name == kitName);
       Converter = Kit.LoadConverter(Applications.Rhino);
@@ -119,7 +120,7 @@ namespace ConnectorGrasshopper.Conversion
 
     protected override void BeforeSolveInstance()
     {
-      Tracker.TrackPageview("convert", "speckle");
+      Tracker.TrackPageview(Tracker.CONVERT_TOSPECKLE);
       base.BeforeSolveInstance();
     }
 
@@ -132,20 +133,20 @@ namespace ConnectorGrasshopper.Conversion
 
     public ISpeckleConverter Converter { get; set; }
 
-    public ToSpeckleWorker(ISpeckleConverter _Converter) : base(null)
+    public ToSpeckleWorker(ISpeckleConverter _Converter, GH_Component parent) : base(parent)
     {
       Converter = _Converter;
       Objects = new GH_Structure<IGH_Goo>();
       ConvertedObjects = new GH_Structure<GH_SpeckleBase>();
     }
 
-    public override WorkerInstance Duplicate() => new ToSpeckleWorker(Converter);
+    public override WorkerInstance Duplicate() => new ToSpeckleWorker(Converter, Parent);
 
     public override void DoWork(Action<string, double> ReportProgress, Action Done)
     {
       try
       {
-        if (CancellationToken.IsCancellationRequested) return;
+        if (CancellationToken.IsCancellationRequested)return;
 
         int branchIndex = 0, completed = 0;
         foreach (var list in Objects.Branches)
@@ -153,9 +154,11 @@ namespace ConnectorGrasshopper.Conversion
           var path = Objects.Paths[branchIndex];
           foreach (var item in list)
           {
-            if (CancellationToken.IsCancellationRequested) return;
+            if (CancellationToken.IsCancellationRequested)return;
 
             var converted = Utilities.TryConvertItemToSpeckle(item, Converter) as Base;
+            if(converted == null)
+              RuntimeMessages.Add((GH_RuntimeMessageLevel.Warning,$"Cannot convert item at {path}[{list.IndexOf(item)}] to Speckle."));
             ConvertedObjects.Append(new GH_SpeckleBase { Value = converted }, Objects.Paths[branchIndex]);
             ReportProgress(Id, ((completed++ + 1) / (double)Objects.Count()));
           }
@@ -163,27 +166,35 @@ namespace ConnectorGrasshopper.Conversion
           branchIndex++;
         }
 
-        Done();
       }
       catch (Exception e)
       {
         // If we reach this, something happened that we weren't expecting...
         Log.CaptureException(e);
-        Parent.AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "Something went terribly wrong... " + e.Message);
+        RuntimeMessages.Add((GH_RuntimeMessageLevel.Error, "Something went terribly wrong... " + e.Message));
         Parent.Message = "Error";
       }
+
+      Done();
     }
+    List<(GH_RuntimeMessageLevel, string)> RuntimeMessages { get; set; } = new List<(GH_RuntimeMessageLevel, string)>();
 
     public override void SetData(IGH_DataAccess DA)
     {
-      if (CancellationToken.IsCancellationRequested) return;
-
+      if (CancellationToken.IsCancellationRequested)return;
+      
+      
+      foreach (var (level, message) in RuntimeMessages)
+      {
+        Parent.AddRuntimeMessage(level, message);
+      }
+      
       DA.SetDataTree(0, ConvertedObjects);
     }
 
     public override void GetData(IGH_DataAccess DA, GH_ComponentParamServer Params)
     {
-      if (CancellationToken.IsCancellationRequested) return;
+      if (CancellationToken.IsCancellationRequested)return;
       DA.DisableGapLogic();
       GH_Structure<IGH_Goo> _objects;
       DA.GetDataTree(0, out _objects);

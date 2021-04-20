@@ -1,14 +1,16 @@
-﻿using Grasshopper.Kernel;
-using Grasshopper.Kernel.Types;
-using Speckle.Core.Models;
-using System;
+﻿using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
+using Grasshopper.Kernel;
 using Grasshopper.Kernel.Data;
+using Grasshopper.Kernel.Types;
 using GrasshopperAsyncComponent;
 using Speckle.Core.Api;
 using Speckle.Core.Kits;
+using Speckle.Core.Logging;
+using Speckle.Core.Models;
 using Utilities = ConnectorGrasshopper.Extras.Utilities;
 
 namespace ConnectorGrasshopper.Ops
@@ -20,7 +22,7 @@ namespace ConnectorGrasshopper.Ops
     public ISpeckleConverter Converter;
 
     public ISpeckleKit Kit;
-    public SendLocalComponent() : base("Local sender", "LS", "Sends data locally, without the need of a Speckle Server.", ComponentCategories.PRIMARY_RIBBON, ComponentCategories.SEND_RECEIVE)
+    public SendLocalComponent() : base("Local sender", "LS", "Sends data locally, without the need of a Speckle Server.", ComponentCategories.SECONDARY_RIBBON, ComponentCategories.LOCAL)
     {
       BaseWorker = new SendLocalWorker(this);
       SetDefaultKitAndConverter();
@@ -39,8 +41,7 @@ namespace ConnectorGrasshopper.Ops
     {
       pManager.AddGenericParameter("localDataId", "id", "ID of the local data sent.", GH_ParamAccess.item);
     }
-    
-    
+
     protected override void AppendAdditionalComponentMenuItems(ToolStripDropDown menu)
     {
       Menu_AppendSeparator(menu);
@@ -58,7 +59,7 @@ namespace ConnectorGrasshopper.Ops
 
     public void SetConverterFromKit(string kitName)
     {
-      if (kitName == Kit.Name) return;
+      if (kitName == Kit.Name)return;
 
       Kit = KitManager.Kits.FirstOrDefault(k => k.Name == kitName);
       Converter = Kit.LoadConverter(Applications.Rhino);
@@ -81,33 +82,53 @@ namespace ConnectorGrasshopper.Ops
       }
     }
 
+    protected override void BeforeSolveInstance()
+    {
+      Tracker.TrackPageview(Tracker.SEND_LOCAL);
+      base.BeforeSolveInstance();
+    }
   }
-  
+
   public class SendLocalWorker : WorkerInstance
   {
     private GH_Structure<IGH_Goo> data;
+    
     private string sentObjectId;
     public SendLocalWorker(GH_Component _parent) : base(_parent)
-    {
-    }
+    { }
 
     public override WorkerInstance Duplicate() => new SendLocalWorker(Parent);
 
     public override void DoWork(Action<string, double> ReportProgress, Action Done)
     {
       Parent.Message = "Sending...";
-      var converter = (Parent as SendLocalComponent)?.Converter;
-      converter?.SetContextDocument(Rhino.RhinoDoc.ActiveDoc);
-      var converted = Utilities.DataTreeToNestedLists(data, converter);
-      var ObjectToSend = new Base();
-      ObjectToSend["@data"] = converted;
-      sentObjectId = Operations.Send(ObjectToSend).Result;
+      try
+      {
+        var converter = (Parent as SendLocalComponent)?.Converter;
+        converter?.SetContextDocument(Rhino.RhinoDoc.ActiveDoc);
+        var converted = Utilities.DataTreeToNestedLists(data, converter);
+        var ObjectToSend = new Base();
+        ObjectToSend["@data"] = converted;
+        sentObjectId = Operations.Send(ObjectToSend).Result;
+      }
+      catch (Exception e)
+      {
+        Console.WriteLine(e);
+        RuntimeMessages.Add((GH_RuntimeMessageLevel.Warning, e.Message));
+      }
+
       Done();
     }
+    
+    List<(GH_RuntimeMessageLevel, string)> RuntimeMessages { get; set; } = new List<(GH_RuntimeMessageLevel, string)>();
 
     public override void SetData(IGH_DataAccess DA)
     {
       DA.SetData(0, sentObjectId);
+      foreach (var (level, message) in RuntimeMessages)
+      {
+        Parent.AddRuntimeMessage(level, message);
+      }
       data = null;
     }
 

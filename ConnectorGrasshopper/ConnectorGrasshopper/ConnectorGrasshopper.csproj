@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="12.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
@@ -58,6 +58,7 @@
     <Compile Include="Conversion\Convert.ToNativeAsync.cs" />
     <Compile Include="Extras\Speckle.IGH_Goo.cs" />
     <Compile Include="Extras\SpeckleBaseParam.cs" />
+    <Compile Include="Extras\SpeckleStateTag.cs" />
     <Compile Include="Extras\SpeckleStreamParam.cs" />
     <Compile Include="Extras\TreeBuilder.cs" />
     <Compile Include="Extras\Utilities.cs" />
@@ -87,6 +88,7 @@
       <DesignTime>True</DesignTime>
       <DependentUpon>Resources.resx</DependentUpon>
     </Compile>
+    <Compile Include="SchemaBuilder\CSOUtils.cs" />
     <Compile Include="SchemaBuilder\CSOViewModel.cs" />
     <Compile Include="Streams\StreamCreateComponent.cs" />
     <Compile Include="Streams\StreamDetailsComponent.cs" />
@@ -102,10 +104,6 @@
     <Compile Include="Conversion\Serialisation.DeserializeObject.cs" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\..\GrasshopperAsyncComponent\GrasshopperAsyncComponent\GrasshopperAsyncComponent.csproj">
-      <Project>{695d2b91-ddb6-416e-8a99-dde6253da7aa}</Project>
-      <Name>GrasshopperAsyncComponent</Name>
-    </ProjectReference>
     <ProjectReference Include="..\..\Core\Core\Core.csproj">
       <Project>{b4d98d2c-e5da-463e-bf6c-68e9b77c72f3}</Project>
       <Name>Core</Name>
@@ -113,10 +111,6 @@
     <ProjectReference Include="..\..\Core\Transports\DiskTransport\DiskTransport.csproj">
       <Project>{8f16a9a1-dc5f-4800-821c-336e6ccf8f9c}</Project>
       <Name>DiskTransport</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\..\Core\Transports\ServerTransport\ServerTransport.csproj">
-      <Project>{8008f635-7ded-473c-88df-12833f599d75}</Project>
-      <Name>ServerTransport</Name>
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
@@ -198,6 +192,12 @@
     </EmbeddedResource>
   </ItemGroup>
   <ItemGroup>
+    <None Include="Resources\StateTag_Optional.Large.png" />
+    <None Include="Resources\StateTag_List.Large.png" />
+    <None Include="Resources\StateTag_Detach.Large.png" />
+    <None Include="Resources\StateTag_Detach.png" />
+    <None Include="Resources\StateTag_List.png" />
+    <None Include="Resources\StateTag_Optional.png" />
     <None Include="Resources\LocalReceiver.png" />
     <None Include="Resources\LocalSender.png" />
     <None Include="Resources\SchemaBuilder.png" />
@@ -207,22 +207,19 @@
   <ItemGroup>
     <PackageReference Include="Grasshopper">
       <Version>6.33.20343.16431</Version>
+      <IncludeAssets>compile; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="GrasshopperAsyncComponent">
-      <Version>0.2.1</Version>
+      <Version>1.2.2</Version>
     </PackageReference>
     <PackageReference Include="System.ComponentModel.Annotations">
       <Version>4.7.0</Version>
     </PackageReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
-  <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
-       Other similar extension points exist, see Microsoft.Common.targets.
-  <Target Name="BeforeBuild">
+  <Target Name="Clean">
+    <RemoveDir Directories="$(TargetDir);$(AppData)\Grasshopper\Libraries\SpeckleGrasshopper2" />
   </Target>
-  <Target Name="AfterBuild">
-  </Target>
-  -->
   <PropertyGroup>
     <FallbackCulture>en-US</FallbackCulture>
   </PropertyGroup>

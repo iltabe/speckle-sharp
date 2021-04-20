@@ -1,6 +1,7 @@
 ﻿using Autodesk.Revit.DB;
 using Speckle.Core.Kits;
 using Speckle.Core.Models;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using BE = Objects.BuiltElements;
@@ -15,7 +16,7 @@ namespace Objects.Converter.Revit
 #if REVIT2021
     public static string RevitAppName = Applications.Revit2021;
 #elif REVIT2020
-      public static string RevitAppName = Applications.Revit2020;
+    public static string RevitAppName = Applications.Revit2020;
 #else
     public static string RevitAppName = Applications.Revit2019;
 #endif
@@ -55,7 +56,7 @@ namespace Objects.Converter.Revit
     /// </summary>
     public List<string> ConvertedObjectsList { get; set; } = new List<string>();
 
-    public HashSet<Error> ConversionErrors { get; private set; } = new HashSet<Error>();
+    public HashSet<Exception> ConversionErrors { get; private set; } = new HashSet<Exception>();
 
     public Dictionary<string, BE.Level> Levels { get; private set; } = new Dictionary<string, BE.Level>();
 
@@ -85,6 +86,9 @@ namespace Objects.Converter.Revit
           break;
         case DB.Level o:
           returnObject = LevelToSpeckle(o);
+          break;
+        case DB.View o:
+          returnObject = ViewToSpeckle(o);
           break;
         case DB.ModelCurve o:
 
@@ -148,7 +152,14 @@ namespace Objects.Converter.Revit
           returnObject = ElementTypeToSpeckle(o);
           break;
         default:
-          ConversionErrors.Add(new Error("Type not supported", $"Cannot convert {@object.GetType()} to Speckle"));
+          // if we don't have a direct conversion, still try to send this element as a generic RevitElement
+          if ((@object as Element).IsElementSupported())
+          {
+            returnObject = RevitElementToSpeckle(@object as Element);
+            break;
+          }
+
+          ConversionErrors.Add(new Exception($"Skipping not supported type: {@object.GetType()}{GetElemInfo(@object)}"));
           returnObject = null;
           break;
       }
@@ -162,6 +173,15 @@ namespace Objects.Converter.Revit
       }
 
       return returnObject;
+    }
+
+    private string GetElemInfo(object o)
+    {
+      if (o is Element e)
+      {
+        return $", name: {e.Name}, id: {e.UniqueId}";
+      }
+      return "";
     }
 
     public object ConvertToNative(Base @object)
@@ -233,6 +253,10 @@ namespace Objects.Converter.Revit
         case BE.Revit.RevitRailing o:
           return RailingToNative(o);
 
+        case BER.ParameterUpdater o:
+          UpdateParameter(o);
+          return null;
+
         default:
           return null;
       }
@@ -259,6 +283,9 @@ namespace Objects.Converter.Revit
           return true;
 
         case DB.Level _:
+          return true;
+
+        case DB.View _:
           return true;
 
         case DB.ModelCurve _:
@@ -317,7 +344,7 @@ namespace Objects.Converter.Revit
           return true;
 
         default:
-          return false;
+          return (@object as Element).IsElementSupported();
       }
     }
 
@@ -388,6 +415,9 @@ namespace Objects.Converter.Revit
           return true;
 
         case BE.Revit.RevitRailing _:
+          return true;
+
+        case BER.ParameterUpdater _:
           return true;
 
         default:

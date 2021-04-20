@@ -6,9 +6,33 @@ orbs:
   # jq is required to be installed to use some swissknife functions.
   jq: circleci/jq@2.2.0
   # Using windows for builds
-  win: circleci/windows@2.2.0
+  win: circleci/windows@2.4.0
   # Upload artifacts to s3
   aws-s3: circleci/aws-s3@2.0.0
+
+# adapted from https://circleci.com/developer/orbs/orb/storytel/nugetpublish#commands-packandpublish
+commands:
+  packandpublish:
+    parameters:
+      projectfilepath:
+        type: string
+      nugetoutputpath:
+        type: string
+        default: output
+      nobuildonpack:
+        type: boolean
+        default: true
+    steps:
+      - run:
+          name: Publish nuget package
+          command: |
+            $tag = if([string]::IsNullOrEmpty($env:CIRCLE_TAG)) { "a/0.0.$($env:CIRCLE_BUILD_NUM)-beta" } else { $env:CIRCLE_TAG }
+            $version = $tag.Split("/")[1]  
+            dotnet pack -c Release <<#parameters.nobuildonpack>>--no-build<</parameters.nobuildonpack>> /p:Version="$version" -o $HOME/<<parameters.nugetoutputpath>> <<parameters.projectfilepath>> 
+            cd $HOME/<<parameters.nugetoutputpath>>
+            ls
+            dotnet nuget push **/*.nupkg -s https://api.nuget.org/v3/index.json -k $env:NUGET_APIKEY -n true
+
 
 # Parameters of our pipeline. Most of them are booleans that indicate which project to build/test with the pattern 'run_{PROJECT_NAME}'
 parameters:
@@ -36,7 +60,9 @@ parameters:
   run_connector_rhino:
     type: boolean
     default: false
-
+  run_connector_autocadcivil:
+    type: boolean
+    default: false
 
 jobs: # Each project will have individual jobs for each specific task it has to execute (build, release...)
   
@@ -54,23 +80,52 @@ jobs: # Each project will have individual jobs for each specific task it has to 
             {"regex": "ConnectorGrasshopper/.*", "param_name": "run_connector_gh"},
             {"regex": "ConnectorDynamo/.*", "param_name": "run_connector_dynamo"},
             {"regex": "ConnectorRevit/.*", "param_name": "run_connector_revit"},
-            {"regex": "ConnectorRhino/.*", "param_name": "run_connector_rhino"}
+            {"regex": "ConnectorRhino/.*", "param_name": "run_connector_rhino"},
+            {"regex": "ConnectorAutocadCivil/.*", "param_name": "run_connector_autocadcivil"}
           ]'
   
   build-core:
     docker:
-      - image: mcr.microsoft.com/dotnet/core/sdk:3.1-focal
+      - image: 'mcr.microsoft.com/dotnet/core/sdk' # dotnet core 3.1 sdk
+      - image: 'mcr.microsoft.com/dotnet/core/sdk:2.1-focal' # dotnet core 2.1 sdk (for netstandard support on build)
     steps:
       - checkout
       - run: 
-          name: Restore Core packages
-          command: dotnet restore Core/Core.sln
-      - run: 
           name: Build Core
-          command: dotnet build Core/Core.sln --no-restore
+          command: dotnet build Core/Core.sln -c Release -v q
+
+  test-core: 
+    docker:
+      - image: 'mcr.microsoft.com/dotnet/core/sdk' # dotnet core 3.1 sdk
+      - image: 'mcr.microsoft.com/dotnet/core/sdk:2.1-focal' # dotnet core 2.1 sdk (for netstandard support on build)
+      # Node, redis, postgres and speckle-server images for test server
+      - image: 'circleci/node:12'
+      - image: 'circleci/redis:6'
+      - image: 'circleci/postgres:12'
+        environment:
+          POSTGRES_DB: speckle2_test
+          POSTGRES_PASSWORD: speckle
+          POSTGRES_USER: speckle
+      - image: 'speckle/speckle-server:5f8cf11cba07ea6a54000243f9cb343b61cbba13'
+        command: ["bash", "-c", "/wait && node bin/www"]
+        environment:
+          POSTGRES_URL: "localhost"
+          POSTGRES_USER: "speckle"
+          POSTGRES_PASSWORD: "speckle"
+          POSTGRES_DB: "speckle2_test"
+          REDIS_URL: "redis://localhost"
+          SESSION_SECRET: 'keyboard cat'
+          STRATEGY_LOCAL: "true"
+          CANONICAL_URL: 'http://localhost:3000'
+          WAIT_HOSTS: localhost:5432, localhost:6379
+    steps:
+      - checkout 
       - run: 
-          name: Test Core
-          command: dotnet test Core/Tests/TestsUnit.csproj --no-restore --no-build
+          name: Unit Tests
+          command: dotnet test Core/Tests/TestsUnit.csproj -c Release -v q
+      - run:
+          name: Integration Tests # The integration tests are runinng on our test sevrer
+          command: dotnet test Core/IntegrationTests/TestsIntegration.csproj -c Release -v q
 
   build-objects:
     executor:
@@ -78,19 +133,18 @@ jobs: # Each project will have individual jobs for each specific task it has to 
       shell: powershell.exe
     steps:
       - checkout
-      - run:
-          name: Restore Objects Packages
-          command: nuget restore Objects/Objects.sln 
       - run: 
           name: Build Objects
-          command: msbuild Objects/Objects.sln /p:Configuration=Release /p:WarningLevel=0 /p:IsDesktopBuild=false
+          command: dotnet build Objects/Objects.sln -c Release /p:IsDesktopBuild=false -v q
 
   build-connector: # Reusable job for basic connectors
     executor:
       name: win/default
       shell: powershell.exe
     parameters:
-      connectorname:
+      slnname:
+        type: string
+      dllname:
         type: string
       slug:
         type: string
@@ -101,11 +155,11 @@ jobs: # Each project will have individual jobs for each specific task it has to 
     steps:
       - checkout
       - run: 
-          name: Restore << parameters.connectorname >>
-          command: nuget restore << parameters.connectorname >>/<< parameters.connectorname >>.sln
+          name: Restore << parameters.slnname >>
+          command: nuget restore << parameters.slnname >>/<< parameters.slnname >>.sln
       - run: 
-          name: Build << parameters.connectorname >>
-          command: msbuild << parameters.connectorname >>/<< parameters.connectorname >>.sln /p:Configuration=Release /p:WarningLevel=0 /p:IsDesktopBuild=false
+          name: Build << parameters.slnname >>
+          command: msbuild << parameters.slnname >>/<< parameters.slnname >>.sln /p:Configuration=Release /p:WarningLevel=0 /p:IsDesktopBuild=false
       - run: 
           name: Deploy?
           command: | # stop job if not triggered by deployment workflow (parameters.installer == false)
@@ -118,14 +172,20 @@ jobs: # Each project will have individual jobs for each specific task it has to 
       - run: # Patches the main assemblies
           name: Patch
           command: | # If no tag, use 0.0.0.1 and don't make any YML (for testing only!)
-            $tag = if([string]::IsNullOrEmpty($env:CIRCLE_TAG)) { "0.0.0.1" } else { $env:CIRCLE_TAG }
-            $version =  $tag.replace("<< parameters.slug >>/","").replace("all/","")  
-            speckle-sharp-ci-tools/Patch/Patcher.exe << parameters.connectorname >>/ *<< parameters.connectorname >>* $version
+            $tag = if([string]::IsNullOrEmpty($env:CIRCLE_TAG)) { "0.0.1" } else { $env:CIRCLE_TAG }
+            $semver = $tag.replace("-beta","").Split("/")[1]  
+            $version = "$($semver).$($env:CIRCLE_BUILD_NUM)"
+            speckle-sharp-ci-tools/Patch/Patcher.exe << parameters.slnname >>/ *<< parameters.dllname >>* $version
+            $channel = "latest"
+            if($tag -like "*-beta") { $channel = "beta" }
             # only create the yml if we have a tag
-            if(-Not [string]::IsNullOrEmpty($env:CIRCLE_TAG)) { New-Item -Force "speckle-sharp-ci-tools/Installers/<< parameters.slug >>/latest.yml" -ItemType File -Value "version: $version.0" }
+            if(-Not [string]::IsNullOrEmpty($env:CIRCLE_TAG)) { New-Item -Force "speckle-sharp-ci-tools/Installers/<< parameters.slug >>/$channel.yml" -ItemType File -Value "version: $version" }
       - run: # Creates the inno installer
           name: InnoSetup
-          command: speckle-sharp-ci-tools/InnoSetup/ISCC.exe speckle-sharp-ci-tools/<< parameters.slug >>.iss     
+          command: speckle-sharp-ci-tools\InnoSetup\ISCC.exe speckle-sharp-ci-tools\%SLUG%.iss /Sbyparam=$p    
+          shell: cmd.exe #does not work in powershell
+          environment:
+            SLUG: << parameters.slug >>
       - persist_to_workspace:
           root: ./
           paths:
@@ -160,25 +220,6 @@ jobs: # Each project will have individual jobs for each specific task it has to 
           from: '"speckle-sharp-ci-tools/Installers/"'
           to: s3://speckle-releases/installers/
 
-  integration-tests: # The integration tests. Spins up a full blown speckle server.
-    working_directory: /temp
-
-    docker:
-      - image: mcr.microsoft.com/dotnet/core/sdk:3.1-focal
-
-    steps:
-      - checkout:
-          path: core
-      - run:
-          working_directory: core
-          command: dotnet restore Core/Core.sln
-      - run:
-          working_directory: core
-          command: dotnet build --configuration Release Core/Core.sln
-      - run:
-          working_directory: core
-          command: dotnet test Core/IntegrationTests/TestsIntegration.csproj --logger:"Console;noprogress=true"
-
 
 # The main workflows for our monorepo pipeline.
 # The main workflow is called 'ci': It is the workflow responsible of determining which projects to build/test.
@@ -202,7 +243,7 @@ workflows:
     when: << pipeline.parameters.run_core >>
     jobs:
       - build-core
-      - integration-tests:
+      - test-core:
           requires:
             - build-core
   
@@ -212,7 +253,8 @@ workflows:
     jobs:
       - build-connector:
           name: build-connector-grasshopper
-          connectorname: ConnectorGrasshopper
+          slnname: ConnectorGrasshopper
+          dllname: SpeckleConnectorGrasshopper.gha 
   
   # Rhino connector - Build/Test
   connector_rhino:
@@ -220,7 +262,8 @@ workflows:
     jobs:
       - build-connector:
           name: build-connector-rhino
-          connectorname: ConnectorRhino
+          slnname: ConnectorRhino
+          dllname: SpeckleConnectorRhino.rhp 
 
   # Dynamo connector - Build/Test
   connector_dynamo:
@@ -228,7 +271,8 @@ workflows:
     jobs:
       - build-connector:
           name: build-connector-dynamo
-          connectorname: ConnectorDynamo
+          slnname: ConnectorDynamo
+          dllname: SpeckleConnectorDynamo.dll 
   
   # Revit Connector - Build/Test
   connector_revit:
@@ -236,8 +280,42 @@ workflows:
     jobs:
       - build-connector:
           name: build-connector-revit
-          connectorname: ConnectorRevit
-      
+          slnname: ConnectorRevit
+          dllname: SpeckleConnectorRevit.dll 
+
+  # AutoCAD & Civil3D Connector - Build/Test
+  connector_autocadcivil:
+    when: << pipeline.parameters.run_connector_autocadcivil >>
+    jobs:
+      - build-connector:
+          name: build-connector-autocadcivil
+          slnname: ConnectorAutocadCivil
+          dllname: SpeckleConnectorCivil.dll
+
+  nuget:
+    jobs:
+      # CORE Nuget Publish        
+      - build-core:
+          name: nuget-deploy-core
+          filters:
+            branches:
+              ignore: /.*/ # For testing only: /ci\/.*/
+            tags: # DO NOT RUN on "all" as already being pushed by objects     
+              only: /^(core|nugets)\/([0-9]+)\.([0-9]+)\.([0-9]+)(?:-\w{1,10})?$/ 
+          post-steps:
+            - packandpublish: 
+                projectfilepath: Core/Core.sln
+      - build-objects:
+          name: nuget-deploy-objects
+          filters:
+            branches:
+              ignore: /.*/ # For testing only: /ci\/.*/
+            tags:
+              only: /^(objects|nugets)\/([0-9]+)\.([0-9]+)\.([0-9]+)(?:-\w{1,10})?$/ 
+          post-steps:
+            - packandpublish: 
+                projectfilepath: Objects/Objects.sln
+
   # Makes installers based on which tag is provided
   # Tag has to be provided in the format "appname/1.0.0"
   # If the tag is in the format "all/1.0.0", all connectors will be deployed with the same version number
@@ -246,77 +324,110 @@ workflows:
       - get-ci-tools:
           filters:
             branches:
-              only: /ci\/.*/ # For testing only! We can use branches like ci/test so won't need to tag
-            tags:
-              # runs on any tag in the format "word/1.0.0"
-              only: /^\w*\/([0-9]+)\.([0-9]+)\.([0-9]+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+)?$/
+              ignore: /.*/ # For testing only: /ci\/.*/
+            tags: # runs on any tag in the format "xyz/1.0.0" or "xyz/1.0.0-beta"         
+              only: /^(all|dynamo|revit|grasshopper|rhino|autocadcivil)\/([0-9]+)\.([0-9]+)\.([0-9]+)(?:-beta)?$/
 
       # DYNAMO Build&Deploy
       - build-connector:
-          name: build-connector-dynamo
-          connectorname: ConnectorDynamo 
+          name: build-deploy-connector-dynamo
+          slnname: ConnectorDynamo 
+          dllname: SpeckleConnectorDynamo.dll 
           slug: dynamo
           installer: true
           requires: 
             - get-ci-tools
           filters:
             branches:
-              only: /ci\/.*/ # For testing only!
+              ignore: /.*/ # For testing only! /ci\/.*/
             tags:
-              only: /^(dynamo|all)\/([0-9]+)\.([0-9]+)\.([0-9]+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+)?$/
+              only: /^(dynamo|all)\/([0-9]+)\.([0-9]+)\.([0-9]+)(?:-beta)?$/         
 
       # REVIT Build&Deploy
       - build-connector:
-          name: build-connector-revit
-          connectorname: ConnectorRevit 
+          name: build-deploy-connector-revit
+          slnname: ConnectorRevit 
+          dllname: SpeckleConnectorRevit.dll 
           slug: revit
           installer: true
           requires: 
             - get-ci-tools
           filters:
             branches:
-              only: /ci\/.*/ # For testing only!
+              ignore: /.*/ # For testing only! /ci\/.*/
             tags:
-              only: /^(revit|all)\/([0-9]+)\.([0-9]+)\.([0-9]+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+)?$/
-
+              only: /^(revit|all)\/([0-9]+)\.([0-9]+)\.([0-9]+)(?:-beta)?$/
 
       # GRASSHOPPER Build&Deploy
       - build-connector:
-          name: build-connector-grasshopper
-          connectorname: ConnectorGrasshopper
+          name: build-deploy-connector-grasshopper
+          slnname: ConnectorGrasshopper
+          dllname: SpeckleConnectorGrasshopper.gha 
           slug: grasshopper
           installer: true
           requires: 
             - get-ci-tools
           filters:
             branches:
-              only: /ci\/.*/ # For testing only!
+              ignore: /.*/ # For testing only! /ci\/.*/
             tags:
-              only: /^(grasshopper|all)\/([0-9]+)\.([0-9]+)\.([0-9]+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+)?$/
-
+              only: /^(grasshopper|all)\/([0-9]+)\.([0-9]+)\.([0-9]+)(?:-beta)?$/
 
       # RHINO Build&Deploy
       - build-connector:
-          name: build-connector-rhino
-          connectorname: ConnectorRhino 
+          name: build-deploy-connector-rhino
+          slnname: ConnectorRhino 
+          dllname: SpeckleConnectorRhino.rhp 
           slug: rhino
           installer: true
           requires: 
             - get-ci-tools
           filters:
             branches:
-              only: /ci\/.*/ # For testing only!
+              ignore: /.*/ # For testing only! /ci\/.*/
             tags:
-              only: /^(rhino|all)\/([0-9]+)\.([0-9]+)\.([0-9]+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+)?$/
+              only: /^(rhino|all)\/([0-9]+)\.([0-9]+)\.([0-9]+)(?:-beta)?$/
+
+      # AUTOCAD Build&Deploy
+      - build-connector:
+          name: build-deploy-connector-autocad
+          slnname: ConnectorAutocadCivil 
+          dllname: SpeckleConnectorAutocad.dll
+          slug: autocad
+          installer: true
+          requires: 
+            - get-ci-tools
+          filters:
+            branches:
+              ignore: /.*/ # For testing only! /ci\/.*/
+            tags:
+              only: /^(autocadcivil|all)\/([0-9]+)\.([0-9]+)\.([0-9]+)(?:-beta)?$/
+
+      # CIVIL 3D Build&Deploy
+      - build-connector:
+          name: build-deploy-connector-civil3d
+          slnname: ConnectorAutocadCivil 
+          dllname: SpeckleConnectorCivil.dll
+          slug: civil3d
+          installer: true
+          requires: 
+            - get-ci-tools
+          filters:
+            branches:
+              ignore: /.*/ # For testing only! /ci\/.*/
+            tags:
+              only: /^(autocadcivil|all)\/([0-9]+)\.([0-9]+)\.([0-9]+)(?:-beta)?$/
      
       # DEPLOY ALL CONNECTORS
       - deploy: # Will run if all the triggered workflows succeed
           requires: 
             - get-ci-tools
-            - build-connector-dynamo
-            - build-connector-revit
-            - build-connector-grasshopper
-            - build-connector-rhino
+            - build-deploy-connector-dynamo
+            - build-deploy-connector-revit
+            - build-deploy-connector-grasshopper
+            - build-deploy-connector-rhino
+            - build-deploy-connector-autocad
+            - build-deploy-connector-civil3d
           filters:
-            tags: # runs on any tag in the format "word/1.0.0"
-              only: /^\w*\/([0-9]+)\.([0-9]+)\.([0-9]+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+)?$/
+            tags: # runs on any tag in the format "xyz/1.0.0" or "xyz/1.0.0-beta"
+              only: /^(all|dynamo|revit|grasshopper|rhino|autocadcivil)\/([0-9]+)\.([0-9]+)\.([0-9]+)(?:-beta)?$/

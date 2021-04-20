@@ -64,7 +64,7 @@ namespace Speckle.ConnectorDynamo.Functions
 
           responses.Add(res);
           var wrapper =
-            new StreamWrapper(serverTransport.StreamId, serverTransport.Account.id, serverTransport.BaseUri)
+            new StreamWrapper(serverTransport.StreamId, serverTransport.Account.userInfo.id, serverTransport.BaseUri)
             {
               CommitId = res
             };
@@ -105,8 +105,8 @@ namespace Speckle.ConnectorDynamo.Functions
 
       var client = new Client(account);
       Commit commit = null;
-      
-      if(stream.Type == StreamWrapperType.Stream || stream.Type == StreamWrapperType.Branch)
+
+      if (stream.Type == StreamWrapperType.Stream || stream.Type == StreamWrapperType.Branch)
       {
         List<Branch> branches;
         try
@@ -122,17 +122,17 @@ namespace Speckle.ConnectorDynamo.Functions
         var branch = branches.FirstOrDefault(b => b.name == stream.BranchName);
         if (branch == null)
         {
-          Log.CaptureAndThrow(new Exception("No branch found with name " + stream.BranchName));
+          throw new SpeckleException("No branch found with name " + stream.BranchName);
         }
 
         if (!branch.commits.items.Any())
         {
-          throw new Exception("No commits found.");
+          throw new SpeckleException("No commits found.");
         }
 
         commit = branch.commits.items[0];
-      } 
-      else if(stream.Type == StreamWrapperType.Commit)
+      }
+      else if (stream.Type == StreamWrapperType.Commit)
       {
         try
         {
@@ -143,16 +143,15 @@ namespace Speckle.ConnectorDynamo.Functions
           Utils.HandleApiExeption(ex);
           return null;
         }
-      } 
-      else if(stream.Type == StreamWrapperType.Object)
+      }
+      else if (stream.Type == StreamWrapperType.Object)
       {
         commit = new Commit() { referencedObject = stream.ObjectId, id = Guid.NewGuid().ToString() };
       }
-     
 
       if (commit == null)
       {
-        throw new Exception("Could not get commit.");
+        throw new SpeckleException("Could not get commit.");
       }
 
       if (cancellationToken.IsCancellationRequested)
@@ -176,7 +175,6 @@ namespace Speckle.ConnectorDynamo.Functions
 
       return new Dictionary<string, object> { { "data", data }, { "commit", commit } };
     }
-
 
     public static object ReceiveData(string inMemoryDataId)
     {

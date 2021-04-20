@@ -16,6 +16,7 @@ using Grasshopper.Kernel.Data;
 using Grasshopper.Kernel.Types;
 using GrasshopperAsyncComponent;
 using Rhino;
+using Sentry.PlatformAbstractions;
 using Speckle.Core.Api;
 using Speckle.Core.Credentials;
 using Speckle.Core.Kits;
@@ -55,6 +56,8 @@ namespace ConnectorGrasshopper.Ops
     public SendComponent() : base("Send", "Send", "Sends data to a Speckle server (or any other provided transport).", ComponentCategories.PRIMARY_RIBBON,
       ComponentCategories.SEND_RECEIVE)
     {
+      Tracker.TrackPageview(Tracker.SEND_ADDED);
+
       BaseWorker = new SendComponentWorker(this);
       Attributes = new SendComponentAttributes(this);
 
@@ -176,6 +179,16 @@ namespace ConnectorGrasshopper.Ops
             (s, e) => System.Diagnostics.Process.Start($"{ow.ServerUrl}/streams/{ow.StreamId}/commits/{ow.CommitId}"));
         }
       }
+      Menu_AppendSeparator(menu);
+
+      if (CurrentComponentState == "sending")
+      {
+        Menu_AppendItem(menu, "Cancel Send", (s, e) =>
+        {
+          CurrentComponentState = "expired";
+          RequestCancellation();
+        });
+      }
 
       base.AppendAdditionalComponentMenuItems(menu);
     }
@@ -218,7 +231,7 @@ namespace ConnectorGrasshopper.Ops
       }
 
       if ((AutoSend || CurrentComponentState == "primed_to_send" || CurrentComponentState == "sending") &&
-          !JustPastedIn)
+        !JustPastedIn)
       {
         CurrentComponentState = "sending";
 
@@ -247,7 +260,7 @@ namespace ConnectorGrasshopper.Ops
       var total = 0.0;
       foreach (var kvp in ProgressReports)
       {
-        Message += $"{kvp.Key}: {kvp.Value:0.00%}\n";
+        Message += $"{kvp.Key}: {kvp.Value}\n";
         total += kvp.Value;
       }
 
@@ -328,11 +341,17 @@ namespace ConnectorGrasshopper.Ops
 
         // Note: this method actually converts the objects to speckle too
         int convertedCount = 0;
-        var converted = Utilities.DataTreeToNestedLists(DataInput, ((SendComponent)Parent).Converter, () =>
+        var converted = Utilities.DataTreeToNestedLists(DataInput, ((SendComponent)Parent).Converter, CancellationToken, () =>
         {
           ReportProgress("Conversion", convertedCount++ / (double)DataInput.DataCount);
         });
 
+        if ( convertedCount == 0 )
+        {
+          RuntimeMessages.Add(( GH_RuntimeMessageLevel.Error, "Zero objects converted successfully. Send stopped." ));
+          Done();
+          return;
+        }
         ObjectToSend = new Base();
         ObjectToSend["@data"] = converted;
 
@@ -368,7 +387,7 @@ namespace ConnectorGrasshopper.Ops
             catch (Exception e)
             {
               // TODO: Check this with team.
-              Parent.AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, e.Message);
+              RuntimeMessages.Add((GH_RuntimeMessageLevel.Warning, e.Message));
             }
           }
 
@@ -376,13 +395,19 @@ namespace ConnectorGrasshopper.Ops
           {
             if (sw.Type == StreamWrapperType.Undefined)
             {
-              Parent.AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Input stream is invalid.");
+              RuntimeMessages.Add((GH_RuntimeMessageLevel.Warning, "Input stream is invalid."));
               continue;
             }
 
             if (sw.Type == StreamWrapperType.Commit)
             {
-              Parent.AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Cannot push to a specific commit stream url.");
+              RuntimeMessages.Add((GH_RuntimeMessageLevel.Warning, "Cannot push to a specific commit stream url."));
+              continue;
+            }
+
+            if (sw.Type == StreamWrapperType.Object)
+            {
+              RuntimeMessages.Add((GH_RuntimeMessageLevel.Warning, "Cannot push to a specific object stream url."));
               continue;
             }
 
@@ -390,12 +415,13 @@ namespace ConnectorGrasshopper.Ops
             try
             {
               acc = sw.GetAccount().Result;
-            } catch(Exception e)
+            }
+            catch (Exception e)
             {
-              Parent.AddRuntimeMessage(GH_RuntimeMessageLevel.Error, e.Message);
+              RuntimeMessages.Add((GH_RuntimeMessageLevel.Warning, e.InnerException?.Message ?? e.Message));
               continue;
             }
-            
+
             var serverTransport = new ServerTransport(acc, sw.StreamId) { TransportName = $"T{t}" };
             transportBranches.Add(serverTransport, sw.BranchName ?? "main");
             Transports.Add(serverTransport);
@@ -411,7 +437,7 @@ namespace ConnectorGrasshopper.Ops
 
         if (Transports.Count == 0)
         {
-          RuntimeMessages.Add((GH_RuntimeMessageLevel.Error, "Could not identify any valid transports to send to."));
+          RuntimeMessages.Add((GH_RuntimeMessageLevel.Warning, "Could not identify any valid transports to send to."));
           Done();
           return;
         }
@@ -420,15 +446,26 @@ namespace ConnectorGrasshopper.Ops
         {
           foreach (var kvp in dict)
           {
-            ReportProgress(kvp.Key, (double)kvp.Value / TotalObjectCount);
+            //NOTE: progress set to indeterminate until the TotalChildrenCount is correct
+            //ReportProgress(kvp.Key, (double)kvp.Value / TotalObjectCount);
+            ReportProgress(kvp.Key, (double)kvp.Value);
           }
         };
 
         ErrorAction = (transportName, exception) =>
         {
-          RuntimeMessages.Add((GH_RuntimeMessageLevel.Warning, $"{transportName}: {exception.Message}"));
+          // TODO: This message condition should be removed once the `link sharing` issue is resolved server-side.
+          var msg = exception.Message.Contains("401")
+            ? $"You don't have access to this transport , or it doesn't exist."
+            : exception.Message;
+          RuntimeMessages.Add((GH_RuntimeMessageLevel.Error, $"{transportName}: {msg}"));
+          Done();
           var asyncParent = (GH_AsyncComponent)Parent;
-          asyncParent.CancellationSources.ForEach(source => source.Cancel());
+          asyncParent.CancellationSources.ForEach(source =>
+          {
+            if (source.Token != CancellationToken)
+              source.Cancel();
+          });
         };
 
         if (CancellationToken.IsCancellationRequested)
@@ -515,20 +552,20 @@ namespace ConnectorGrasshopper.Ops
           if (CancellationToken.IsCancellationRequested)
           {
             ((SendComponent)Parent).CurrentComponentState = "expired";
-            return;
+            Done();
           }
 
           Done();
         }, CancellationToken);
-        task.Wait();
       }
       catch (Exception e)
       {
         // If we reach this, something happened that we weren't expecting...
         Log.CaptureException(e);
-        Parent.AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "Something went terribly wrong... " + e.Message);
+        RuntimeMessages.Add((GH_RuntimeMessageLevel.Error, "Something went terribly wrong... " + e.Message));
         Parent.Message = "Error";
         ((SendComponent)Parent).CurrentComponentState = "expired";
+        Done();
       }
     }
 
@@ -590,9 +627,7 @@ namespace ConnectorGrasshopper.Ops
     private bool _selected;
     Rectangle ButtonBounds { get; set; }
 
-    public SendComponentAttributes(GH_Component owner) : base(owner)
-    {
-    }
+    public SendComponentAttributes(GH_Component owner) : base(owner) { }
 
     public override bool Selected
     {
@@ -642,7 +677,9 @@ namespace ConnectorGrasshopper.Ops
         else
         {
           var palette = (state == "expired" || state == "up_to_date") ? GH_Palette.Black : GH_Palette.Transparent;
-          var text = state == "sending" ? $"{((SendComponent)Owner).OverallProgress:0.00%}" : "Send";
+          //NOTE: progress set to indeterminate until the TotalChildrenCount is correct
+          //var text = state == "sending" ? $"{((SendComponent)Owner).OverallProgress}" : "Send";
+          var text = state == "sending" ? $"Sending..." : "Send";
 
           var button = GH_Capsule.CreateTextCapsule(ButtonBounds, ButtonBounds, palette, text, 2,
             state == "expired" ? 10 : 0);

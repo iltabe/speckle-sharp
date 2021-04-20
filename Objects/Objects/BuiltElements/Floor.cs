@@ -1,16 +1,20 @@
-﻿using Speckle.Core.Kits;
+﻿using Objects.Geometry;
+using Speckle.Core.Kits;
 using Speckle.Core.Models;
 using System.Collections.Generic;
 
 namespace Objects.BuiltElements
 {
-  public class Floor : Base
+  public class Floor : Base, IDisplayMesh
   {
     public ICurve outline { get; set; }
     public List<ICurve> voids { get; set; } = new List<ICurve>();
 
     [DetachProperty]
     public List<Base> elements { get; set; }
+
+    [DetachProperty]
+    public Mesh displayMesh { get; set; }
 
     public Floor() { }
 
@@ -23,12 +27,10 @@ namespace Objects.BuiltElements
       this.elements = elements;
     }
   }
-
 }
 
 namespace Objects.BuiltElements.Revit
 {
-
   public class RevitFloor : Floor
   {
     public string family { get; set; }
@@ -37,9 +39,7 @@ namespace Objects.BuiltElements.Revit
     public bool structural { get; set; }
     public List<Parameter> parameters { get; set; }
     public string elementId { get; set; }
-    public RevitFloor()
-    {
-    }
+    public RevitFloor() { }
 
     [SchemaInfo("RevitFloor", "Creates a Revit floor by outline and level")]
     public RevitFloor(string family, string type, ICurve outline,

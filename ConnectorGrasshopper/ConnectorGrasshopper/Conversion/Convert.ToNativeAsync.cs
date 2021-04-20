@@ -1,4 +1,9 @@
-﻿using ConnectorGrasshopper.Extras;
+﻿using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Linq;
+using System.Windows.Forms;
+using ConnectorGrasshopper.Extras;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Data;
@@ -7,10 +12,6 @@ using GrasshopperAsyncComponent;
 using Speckle.Core.Kits;
 using Speckle.Core.Logging;
 using Speckle.Core.Models;
-using System;
-using System.Drawing;
-using System.Linq;
-using System.Windows.Forms;
 using Utilities = ConnectorGrasshopper.Extras.Utilities;
 
 namespace ConnectorGrasshopper.Conversion
@@ -34,7 +35,7 @@ namespace ConnectorGrasshopper.Conversion
       "Convert data from Speckle's Base object to it`s Dynamo equivalent.", ComponentCategories.SECONDARY_RIBBON, ComponentCategories.CONVERSION)
     {
       SetDefaultKitAndConverter();
-      BaseWorker = new ToNativeWorker(Converter);
+      BaseWorker = new ToNativeWorker(Converter, this);
     }
 
     public override void AppendAdditionalMenuItems(ToolStripDropDown menu)
@@ -78,7 +79,7 @@ namespace ConnectorGrasshopper.Conversion
       Converter = Kit.LoadConverter(Applications.Rhino);
       Converter.SetContextDocument(Rhino.RhinoDoc.ActiveDoc);
 
-      ((ToNativeWorker) BaseWorker).Converter = Converter;
+      ((ToNativeWorker)BaseWorker).Converter = Converter;
 
       ExpireSolution(true);
     }
@@ -128,7 +129,7 @@ namespace ConnectorGrasshopper.Conversion
 
     protected override void BeforeSolveInstance()
     {
-      Tracker.TrackPageview("convert", "native");
+      Tracker.TrackPageview(Tracker.CONVERT_TONATIVE);
       base.BeforeSolveInstance();
     }
   }
@@ -140,14 +141,14 @@ namespace ConnectorGrasshopper.Conversion
 
     public ISpeckleConverter Converter { get; set; }
 
-    public ToNativeWorker(ISpeckleConverter _Converter) : base(null)
+    public ToNativeWorker(ISpeckleConverter _Converter, GH_Component parent) : base(parent)
     {
       Converter = _Converter;
       Objects = new GH_Structure<GH_SpeckleBase>();
       ConvertedObjects = new GH_Structure<IGH_Goo>();
     }
 
-    public override WorkerInstance Duplicate() => new ToNativeWorker(Converter);
+    public override WorkerInstance Duplicate() => new ToNativeWorker(Converter, Parent);
 
     public override void DoWork(Action<string, double> ReportProgress, Action Done)
     {
@@ -171,7 +172,7 @@ namespace ConnectorGrasshopper.Conversion
 
             var converted = Utilities.TryConvertItemToNative(item?.Value, Converter);
             ConvertedObjects.Append(converted, path);
-            ReportProgress(Id, (completed++ + 1) / (double) Objects.Count());
+            ReportProgress(Id, (completed++ + 1) / (double)Objects.Count());
           }
 
           branchIndex++;
@@ -194,9 +195,16 @@ namespace ConnectorGrasshopper.Conversion
       {
         return;
       }
-
+      
+      foreach (var (level, message) in RuntimeMessages)
+      {
+        Parent.AddRuntimeMessage(level, message);
+      }
+      
       DA.SetDataTree(0, ConvertedObjects);
     }
+    
+    List<(GH_RuntimeMessageLevel, string)> RuntimeMessages { get; set; } = new List<(GH_RuntimeMessageLevel, string)>();
 
     public override void GetData(IGH_DataAccess DA, GH_ComponentParamServer Params)
     {
@@ -214,6 +222,8 @@ namespace ConnectorGrasshopper.Conversion
         var path = _objects.Paths[branchIndex];
         foreach (var item in list)
         {
+          if(!item.IsValid) 
+             RuntimeMessages.Add((GH_RuntimeMessageLevel.Warning, $"Item at path {path}[{list.IndexOf(item)}] is not a Base object."));
           Objects.Append(item, path);
         }
 

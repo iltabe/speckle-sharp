@@ -78,6 +78,12 @@ namespace Speckle.DesktopUI.Streams
       var ass = AppDomain.CurrentDomain.GetAssemblies().Where(x => x.FullName.ToLowerInvariant().Contains("xaml")).ToList();
     }
 
+    public void RefreshPage()
+    {
+      NotifyOfPropertyChange(string.Empty);
+      StreamList = LoadStreams();
+    }
+
     private BindableCollection<StreamState> LoadStreams()
     {
       var streams = new BindableCollection<StreamState>(_bindings.GetStreamsInFile());
@@ -106,7 +112,7 @@ namespace Speckle.DesktopUI.Streams
 
       var view = _viewManager.CreateAndBindViewForModelIfNecessary(viewmodel);
       var res = await DialogHost.Show(view, "RootDialogHost");
-      if (res == null) return;
+      if (res == null)return;
       args.RootStreamState.SwitchBranch((Branch)res);
     }
 
@@ -128,7 +134,13 @@ namespace Speckle.DesktopUI.Streams
       await DialogHost.Show(view, "RootDialogHost");
     }
 
-    public async void Send(StreamState state) => state.Send();
+    public async void Send(StreamState state)
+    {
+      if ( state.CommitExpanderChecked )
+        state.Send();
+      else
+        state.CommitExpanderChecked = true;
+    }
 
     public async void Receive(StreamState state) => state.Receive();
 
@@ -154,9 +166,22 @@ namespace Speckle.DesktopUI.Streams
       var result = await DialogHost.Show(view, "RootDialogHost");
     }
 
+    public void RemoveDisabledStream(StreamState state)
+    {
+      Tracker.TrackPageview("stream", "remove", "no-account-found");
+      RemoveStream(state.Stream.id);
+    }
+
+    private void RemoveStream(string streamId)
+    {
+      var state = StreamList.First(s => s.Stream.id == streamId);
+      StreamList.Remove(state);
+      NotifyOfPropertyChange(nameof(EmptyState));
+    }
+
     public void OpenStreamInWeb(StreamState state)
     {
-      Tracker.TrackPageview("stream", "web");
+      Tracker.TrackPageview(Tracker.STREAM_VIEW);
       Link.OpenInBrowser($"{state.ServerUrl}/streams/{state.Stream.id}");
     }
 
@@ -175,9 +200,7 @@ namespace Speckle.DesktopUI.Streams
 
     public void Handle(StreamRemovedEvent message)
     {
-      var state = StreamList.First(s => s.Stream.id == message.StreamId);
-      StreamList.Remove(state);
-      NotifyOfPropertyChange(nameof(EmptyState));
+      RemoveStream(message.StreamId);
     }
 
     public void Handle(ApplicationEvent message)
@@ -200,10 +223,10 @@ namespace Speckle.DesktopUI.Streams
           StreamList.Clear();
           StreamList = new BindableCollection<StreamState>(message.DynamicInfo);
           StreamList.Refresh();
-          foreach (var state in StreamList)
-          {
-            state.RefreshStream();
-          }
+          //foreach (var state in StreamList)
+          //{
+          //  state.RefreshStream();
+          //}
           break;
         case ApplicationEvent.EventType.ApplicationIdling:
           break;
@@ -241,10 +264,10 @@ namespace Speckle.DesktopUI.Streams
     }
 
     public static readonly DependencyProperty IsLeftClickEnabledProperty = DependencyProperty.RegisterAttached(
-        "IsLeftClickEnabled",
-        typeof(bool),
-        typeof(ContextMenuLeftClickBehavior),
-        new UIPropertyMetadata(false, OnIsLeftClickEnabledChanged));
+      "IsLeftClickEnabled",
+      typeof(bool),
+      typeof(ContextMenuLeftClickBehavior),
+      new UIPropertyMetadata(false, OnIsLeftClickEnabledChanged));
 
     private static void OnIsLeftClickEnabledChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
@@ -320,8 +343,7 @@ namespace Speckle.DesktopUI.Streams
     }
 
     public static readonly DependencyProperty DataProperty =
-        DependencyProperty.Register("Data", typeof(object), typeof(BindingProxy), new UIPropertyMetadata(null));
+      DependencyProperty.Register("Data", typeof(object), typeof(BindingProxy), new UIPropertyMetadata(null));
   }
-
 
 }

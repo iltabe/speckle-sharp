@@ -6,9 +6,11 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.Serialization.Formatters.Binary;
+using System.Text;
 using ConnectorGrasshopper.Extras;
 using ConnectorGrasshopper.Objects;
 using GH_IO.Serialization;
+using Grasshopper;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Parameters;
@@ -18,6 +20,7 @@ using Speckle.Core.Api;
 using Speckle.Core.Kits;
 using Speckle.Core.Logging;
 using Speckle.Core.Models;
+using Speckle.Newtonsoft.Json;
 
 namespace ConnectorGrasshopper
 {
@@ -26,6 +29,7 @@ namespace ConnectorGrasshopper
     public override GH_Exposure Exposure => GH_Exposure.tertiary;
 
     private ConstructorInfo SelectedConstructor;
+    private bool readFailed = false;
     private GH_Document _document;
 
     public override Guid ComponentGuid => new Guid("4dc285e3-810d-47db-bfb5-cd96fe459fdd");
@@ -33,10 +37,9 @@ namespace ConnectorGrasshopper
 
     public string Seed;
 
-    public CreateSchemaObject()
-      : base("Create Schema Object", "CsO",
-          "Allows you to create a Speckle object from a schema class.",
-          ComponentCategories.PRIMARY_RIBBON, ComponentCategories.OBJECTS)
+    public CreateSchemaObject() : base("Create Schema Object", "CsO",
+      "Allows you to create a Speckle object from a schema class.",
+      ComponentCategories.PRIMARY_RIBBON, ComponentCategories.OBJECTS)
     {
       Kit = KitManager.GetDefaultKit();
       try
@@ -59,6 +62,9 @@ namespace ConnectorGrasshopper
 
     public override void AddedToDocument(GH_Document document)
     {
+      if (readFailed)
+        return;
+
       if (SelectedConstructor != null)
       {
         base.AddedToDocument(document);
@@ -84,10 +90,9 @@ namespace ConnectorGrasshopper
 
       var dialog = new CreateSchemaObjectDialog();
       dialog.Owner = Grasshopper.Instances.EtoDocumentEditor;
-      var viewport = Grasshopper.Instances.ActiveCanvas.Viewport;
       var mouse = GH_Canvas.MousePosition;
-      dialog.Location = new Eto.Drawing.Point((int)viewport.MidPoint.X,(int)viewport.MidPoint.Y ); //approx the dialog half-size
-      
+      dialog.Location = new Eto.Drawing.Point((int)((mouse.X - 150) / dialog.Screen.LogicalPixelSize), (int)((mouse.Y - 150) / dialog.Screen.LogicalPixelSize)); //approx the dialog half-size
+
       dialog.ShowModal();
 
       if (dialog.HasResult)
@@ -129,6 +134,8 @@ namespace ConnectorGrasshopper
     {
       // get property name and value
       Type propType = param.ParameterType;
+      if (propType.IsGenericType && propType.GetGenericTypeDefinition() == typeof(Nullable<>))
+        propType = Nullable.GetUnderlyingType(propType);
 
       string propName = param.Name;
       object propValue = param;
@@ -151,6 +158,8 @@ namespace ConnectorGrasshopper
 
       newInputParam.Description = $"({propType.Name}) {d}";
       newInputParam.Optional = param.IsOptional;
+      if (param.IsOptional)
+        newInputParam.SetPersistentData(param.DefaultValue);
 
       // check if input needs to be a list or item access
       bool isCollection = typeof(System.Collections.IEnumerable).IsAssignableFrom(propType) && propType != typeof(string) && !propType.Name.ToLower().Contains("dictionary");
@@ -203,9 +212,18 @@ namespace ConnectorGrasshopper
     {
       try
       {
-        SelectedConstructor = ByteArrayToObject<ConstructorInfo>(reader.GetByteArray("SelectedConstructor"));
+        var constructorName = reader.GetString("SelectedConstructorName");
+        var typeName = reader.GetString("SelectedTypeName");
+
+        SelectedConstructor = CSOUtils.FindConstructor(constructorName, typeName);
+        if (SelectedConstructor == null)
+          readFailed = true;
+
       }
-      catch { }
+      catch
+      {
+        readFailed = true;
+      }
 
       try
       {
@@ -219,38 +237,17 @@ namespace ConnectorGrasshopper
     {
       if (SelectedConstructor != null)
       {
-        writer.SetByteArray("SelectedConstructor", ObjectToByteArray(SelectedConstructor));
+        writer.SetString("SelectedConstructorName", CSOUtils.MethodFullName(SelectedConstructor));
+        writer.SetString("SelectedTypeName", SelectedConstructor.DeclaringType.FullName);
       }
 
       writer.SetString("seed", Seed);
       return base.Write(writer);
     }
 
-    private static byte[] ObjectToByteArray(object obj)
-    {
-      BinaryFormatter bf = new BinaryFormatter();
-      using (var ms = new MemoryStream())
-      {
-        bf.Serialize(ms, obj);
-        return ms.ToArray();
-      }
-    }
-
-    private static T ByteArrayToObject<T>(byte[] arrBytes)
-    {
-      using (var memStream = new MemoryStream())
-      {
-        var binForm = new BinaryFormatter();
-        memStream.Write(arrBytes, 0, arrBytes.Length);
-        memStream.Seek(0, SeekOrigin.Begin);
-        var obj = binForm.Deserialize(memStream);
-        return (T)obj;
-      }
-    }
 
     protected override void RegisterInputParams(GH_InputParamManager pManager)
-    {
-    }
+    { }
 
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
@@ -260,12 +257,17 @@ namespace ConnectorGrasshopper
 
     protected override void SolveInstance(IGH_DataAccess DA)
     {
+      if (readFailed)
+      {
+        AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "This component has changed or cannot be found, please create a new one");
+        return;
+      }
+
       if (SelectedConstructor is null)
       {
         AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "No schema has been selected.");
         return;
       }
-
 
       List<object> cParamsValues = new List<object>();
       var cParams = SelectedConstructor.GetParameters();
@@ -278,6 +280,12 @@ namespace ConnectorGrasshopper
         {
           var inputValues = new List<object>();
           DA.GetDataList(i, inputValues);
+          if (!inputValues.Any() && !param.Optional)
+          {
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "Input list `" + param.Name + "` is empty.");
+            return;
+          }
+
           inputValues = inputValues.Select(x => ExtractRealInputValue(x)).ToList();
           cParamsValues.Add(GetObjectListProp(param, inputValues, cParam.ParameterType));
         }
@@ -291,7 +299,7 @@ namespace ConnectorGrasshopper
 
       var outputObject = SelectedConstructor.Invoke(cParamsValues.ToArray());
 
-      ((Base)outputObject).applicationId = $"{Seed}-{SelectedConstructor.Name}-{DA.Iteration}";
+      ((Base)outputObject).applicationId = $"{Seed}-{SelectedConstructor.DeclaringType.FullName}-{DA.Iteration}";
       ((Base)outputObject).units = Units.GetUnitsFromString(Rhino.RhinoDoc.ActiveDoc.GetUnitSystemName(true, false, false, false));
 
       DA.SetData(0, new GH_SpeckleBase() { Value = outputObject as Base });
@@ -376,8 +384,6 @@ namespace ConnectorGrasshopper
         // Log conversion error?
       }
 
-
-
       //tries an explicit casting, given that the required type is a variable, we need to use reflection
       //not really sure this method is needed
       try
@@ -388,7 +394,7 @@ namespace ConnectorGrasshopper
       catch { }
 
       AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "Unable to set " + name + ".");
-      throw new Exception($"Could not covert object to {type}");
+      throw new SpeckleException($"Could not covert object to {type}");
     }
 
     //keep public so it can be picked by reflection
@@ -422,14 +428,14 @@ namespace ConnectorGrasshopper
     }
 
     public void VariableParameterMaintenance()
-    {
-    }
+    { }
 
     protected override void BeforeSolveInstance()
     {
-      Converter.SetContextDocument(Rhino.RhinoDoc.ActiveDoc);
+      Converter?.SetContextDocument(Rhino.RhinoDoc.ActiveDoc);
       Tracker.TrackPageview("objects", "create", "variableinput");
       base.BeforeSolveInstance();
     }
   }
+
 }

@@ -2,18 +2,19 @@
 using System.Linq;
 using System.Threading.Tasks;
 using Speckle.Core.Api;
+using Speckle.Core.Logging;
 
 namespace Speckle.Core.Credentials
 {
   public class StreamWrapper
   {
-    private string originalInput; 
+    private string originalInput;
 
-    public string AccountId { get; set; }
+    public string UserId { get; set; }
     public string ServerUrl { get; set; }
     public string StreamId { get; set; }
     public string CommitId { get; set; }
-    public string BranchName { get; set; } 
+    public string BranchName { get; set; }
     public string ObjectId { get; set; }
 
     /// <summary>
@@ -45,14 +46,14 @@ namespace Speckle.Core.Credentials
         {
           return StreamWrapperType.Stream;
         }
+
         // If we reach here, it means that the stream is invalid for some reason.
         return StreamWrapperType.Undefined;
       }
     }
 
     public StreamWrapper()
-    {
-    }
+    { }
 
     /// <summary>
     /// Creates a StreamWrapper from a stream url or a stream id
@@ -83,18 +84,18 @@ namespace Speckle.Core.Credentials
     }
 
     /// <summary>
-    /// Creates a StreamWrapper by streamId, accountId and serverUrl
+    /// Creates a StreamWrapper by streamId, userId and serverUrl
     /// </summary>
     /// <param name="streamId"></param>
-    /// <param name="accountId"></param>
+    /// <param name="userId"></param>
     /// <param name="serverUrl"></param>
-    public StreamWrapper(string streamId, string accountId, string serverUrl)
+    public StreamWrapper(string streamId, string userId, string serverUrl)
     {
-      AccountId = accountId;
+      UserId = userId;
       ServerUrl = serverUrl;
       StreamId = streamId;
 
-      originalInput = $"{ServerUrl}/streams/{StreamId}{(AccountId != null ? "?u=" + AccountId : "")}";
+      originalInput = $"{ServerUrl}/streams/{StreamId}{(UserId != null ? "?u=" + UserId : "")}";
     }
 
     private void StreamWrapperFromId(string streamId)
@@ -103,12 +104,12 @@ namespace Speckle.Core.Credentials
 
       if (account == null)
       {
-        throw new Exception(
+        throw new SpeckleException(
           $"You do not have any account. Please create one or add it to the Speckle Manager.");
       }
 
       ServerUrl = account.serverInfo.url;
-      AccountId = account.id;
+      UserId = account.userInfo.id;
       StreamId = streamId;
     }
 
@@ -116,11 +117,6 @@ namespace Speckle.Core.Credentials
     {
       Uri uri = new Uri(streamUrl);
       ServerUrl = uri.GetLeftPart(UriPartial.Authority);
-
-      if (uri.Segments.Length < 3)
-      {
-        throw new Exception($"Cannot parse {uri} into a stream wrapper class.");
-      }
 
       switch (uri.Segments.Length)
       {
@@ -131,7 +127,7 @@ namespace Speckle.Core.Credentials
           }
           else
           {
-            throw new Exception($"Cannot parse {uri} into a stream wrapper class.");
+            throw new SpeckleException($"Cannot parse {uri} into a stream wrapper class.");
           }
 
           break;
@@ -144,7 +140,7 @@ namespace Speckle.Core.Credentials
           else if (uri.Segments[3].ToLowerInvariant() == "branches/")
           {
             StreamId = uri.Segments[2].Replace("/", "");
-            BranchName = Uri.UnescapeDataString( uri.Segments[4].Replace("/", ""));
+            BranchName = Uri.UnescapeDataString(uri.Segments[4].Replace("/", ""));
           }
           else if (uri.Segments[3].ToLowerInvariant() == "objects/")
           {
@@ -153,10 +149,13 @@ namespace Speckle.Core.Credentials
           }
           else
           {
-            throw new Exception($"Cannot parse {uri} into a stream wrapper class.");
+            throw new SpeckleException($"Cannot parse {uri} into a stream wrapper class.");
           }
 
           break;
+
+        default:
+          throw new SpeckleException($"Cannot parse {uri} into a stream wrapper class.");
       }
     }
 
@@ -166,9 +165,12 @@ namespace Speckle.Core.Credentials
     /// Gets a valid account for this stream wrapper. 
     /// <para>Note: this method ensures that the stream exists and/or that the user has an account which has access to that stream. If used in a sync manner, make sure it's not blocking.</para>
     /// </summary>
-    /// <returns></returns>
+    /// <exception cref="Exception">Throws exception if account fetching failed. This could be due to non-existent account or stream.</exception>
+    /// <returns>The valid account object for this stream.</returns>
     public async Task<Account> GetAccount()
     {
+      Exception err = null;
+
       if (_Account != null)
       {
         return _Account;
@@ -179,16 +181,19 @@ namespace Speckle.Core.Credentials
       {
         var userId = originalInput.Split(new string[] { "?u=" }, StringSplitOptions.None)[1];
         var acc = AccountManager.GetAccounts().FirstOrDefault(acc => acc.userInfo.id == userId);
-        if(acc!=null)
+        if (acc != null)
         {
           try
           {
-            var client = new Client(acc);
-            var res = await client.StreamGet(StreamId);
+            await ValidateWithAccount(acc);
             _Account = acc;
             return acc;
           }
-          catch { }
+          catch (Exception e)
+          {
+            // If user specified account and fails, we should stop trying.
+            throw e;
+          }
         }
       }
 
@@ -196,38 +201,89 @@ namespace Speckle.Core.Credentials
       var defAcc = AccountManager.GetDefaultAccount();
       try
       {
-        var client = new Client(defAcc);
-        var res = await client.StreamGet(StreamId);
+        await ValidateWithAccount(defAcc);
         _Account = defAcc;
         return defAcc;
       }
-      catch { }
+      catch (Exception e)
+      {
+        err = e;
+      }
 
       // Step 3: all the rest
       var accs = AccountManager.GetAccounts(ServerUrl);
-      if(accs.Count() == 0) 
+      if (accs.Count() == 0)
       {
-        throw new Exception($"You don't have any accounts for ${ServerUrl}.");
+        throw new SpeckleException($"You don't have any accounts for ${ServerUrl}.");
       }
-      
+
       foreach (var acc in accs)
       {
         try
         {
-          var client = new Client(acc);
-          var res = await client.StreamGet(StreamId);
+          await ValidateWithAccount(acc);
           _Account = acc;
           return acc;
         }
-        catch { }
+        catch (Exception e)
+        {
+          err = e;
+        }
       }
 
-      throw new Exception($"You don't have access to stream {StreamId} on server {ServerUrl}, or the stream does not exist.");
+      throw err;
+    }
+
+    public bool Equals(StreamWrapper wrapper)
+    {
+      if (wrapper == null) return false;
+      if (Type != wrapper.Type) return false;
+      return Type == wrapper.Type &&
+        ServerUrl == wrapper.ServerUrl &&
+        UserId == wrapper.UserId &&
+        StreamId == wrapper.StreamId &&
+        (Type == StreamWrapperType.Branch && BranchName == wrapper.BranchName) ||
+        (Type == StreamWrapperType.Object && ObjectId == wrapper.ObjectId) ||
+        (Type == StreamWrapperType.Commit && CommitId == wrapper.CommitId);
+    }
+
+    private async Task ValidateWithAccount(Account acc)
+    {
+      var client = new Client(acc);
+      // First check if the stream exists
+      try
+      {
+        await client.StreamGet(StreamId);
+      }
+      catch
+      {
+        throw new SpeckleException(
+          $"You don't have access to stream {StreamId} on server {ServerUrl}, or the stream does not exist.");
+      }
+
+      // Check if the branch exists
+      if (Type == StreamWrapperType.Branch && await client.BranchGet(StreamId, BranchName, 1) == null)
+        throw new SpeckleException(
+          $"The branch with name '{BranchName}' doesn't exist in stream {StreamId} on server {ServerUrl}");
     }
 
     public override string ToString()
     {
-      return originalInput;
+      var url = $"{ServerUrl}/streams/{StreamId}";
+      switch (Type)
+      {
+        case StreamWrapperType.Commit:
+          url += $"/commits/{CommitId}";
+          break;
+        case StreamWrapperType.Branch:
+          url += $"/branches/{BranchName}";
+          break;
+        case StreamWrapperType.Object:
+          url += $"/objects/{ObjectId}";
+          break;
+      }
+      var acc = $"{(UserId != null ? "?u=" + UserId : "")}";
+      return url + acc;
     }
   }
 

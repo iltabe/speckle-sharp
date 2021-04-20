@@ -108,7 +108,8 @@ namespace Speckle.ConnectorRevit.UI
       if (CurrentDoc != null)
         return;
 
-      SpeckleRevitCommand.Bootstrapper.Application.MainWindow.Hide();
+      if (SpeckleRevitCommand.Bootstrapper != null)
+        SpeckleRevitCommand.Bootstrapper.Application.MainWindow.Hide();
 
       var appEvent = new ApplicationEvent() { Type = ApplicationEvent.EventType.DocumentClosed };
       NotifyUi(appEvent);
@@ -124,7 +125,7 @@ namespace Speckle.ConnectorRevit.UI
       var streams = GetStreamsInFile();
       if (streams != null && streams.Count != 0)
       {
-        SpeckleRevitCommand.OpenOrFocusSpeckle(RevitApp);
+        SpeckleRevitCommand.OpenOrFocusSpeckle();
       }
 
       var appEvent = new ApplicationEvent()

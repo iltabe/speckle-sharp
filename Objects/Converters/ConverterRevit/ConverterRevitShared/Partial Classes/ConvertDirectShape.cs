@@ -1,15 +1,14 @@
-﻿using Autodesk.Revit.DB;
-using Speckle.Core.Models;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using Autodesk.Revit.DB;
 using Objects.Geometry;
 using Speckle.Core.Logging;
+using Speckle.Core.Models;
 using DB = Autodesk.Revit.DB;
 using DirectShape = Objects.BuiltElements.Revit.DirectShape;
 using Mesh = Objects.Geometry.Mesh;
 using Parameter = Objects.BuiltElements.Revit.Parameter;
-
 
 namespace Objects.Converter.Revit
 {
@@ -40,7 +39,7 @@ namespace Objects.Converter.Revit
             }
             catch (Exception e)
             {
-              var mesh = MeshToNative(brep.displayValue);
+              var mesh = MeshToNative(brep.displayMesh);
               converted.AddRange(mesh);
             }
             break;
@@ -49,14 +48,13 @@ namespace Objects.Converter.Revit
             converted.AddRange(rMesh);
             break;
           default:
-            ConversionErrors.Add(new Error("Incompatible geometry type",
-              $"Type ${b.GetType()} is not supported in DirectShape conversions."));
+            ConversionErrors.Add(new Exception($"Incompatible geometry type: {b.GetType()} is not supported in DirectShape conversions."));
             break;
         }
       });
 
       BuiltInCategory cat;
-      var bic = Categories.GetBuiltInCategory(speckleDs.category);
+      var bic = Categories.GetBuiltInFromSchemaBuilderCategory(speckleDs.category);
       BuiltInCategory.TryParse(bic, out cat);
       var catId = Doc.Settings.Categories.get_Item(cat).Id;
 
@@ -95,11 +93,11 @@ namespace Objects.Converter.Revit
       {
         var solid = BrepToNative(brep);
         if (solid == null) throw new SpeckleException("Could not convert brep to native");
-        revitDs.SetShape(new List<GeometryObject>{solid});
+        revitDs.SetShape(new List<GeometryObject> { solid });
       }
       catch (Exception e)
       {
-        var mesh = MeshToNative(brep.displayValue);
+        var mesh = MeshToNative(brep.displayMesh);
         revitDs.SetShape(mesh);
       }
 
@@ -139,23 +137,24 @@ namespace Objects.Converter.Revit
     private DirectShape DirectShapeToSpeckle(DB.DirectShape revitAc)
     {
       var cat = ((BuiltInCategory)revitAc.Category.Id.IntegerValue).ToString();
-      var category = Categories.GetCategory(cat);
+      var category = Categories.GetSchemaBuilderCategoryFromBuiltIn(cat);
       var element = revitAc.get_Geometry(new Options());
       var geometries = element.ToList().Select<GeometryObject, Base>(obj =>
-       {
-         return obj switch
-         {
-           DB.Mesh mesh => MeshToSpeckle(mesh),
-           Solid solid => BrepToSpeckle(solid),
-           _ => null
-         };
-       });
+        {
+          return obj
+          switch
+          {
+            DB.Mesh mesh => MeshToSpeckle(mesh),
+            Solid solid => BrepToSpeckle(solid),
+            _ => null
+          };
+        });
       var speckleAc = new DirectShape(
         revitAc.Name,
         category,
         geometries.ToList(),
         new List<Parameter>()
-        );
+      );
       GetAllRevitParamsAndIds(speckleAc, revitAc);
       speckleAc["type"] = revitAc.Name;
       return speckleAc;

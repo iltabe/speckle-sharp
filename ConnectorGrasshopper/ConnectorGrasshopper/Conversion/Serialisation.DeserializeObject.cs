@@ -1,12 +1,13 @@
-﻿using ConnectorGrasshopper.Extras;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using ConnectorGrasshopper.Extras;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Data;
 using Grasshopper.Kernel.Types;
 using GrasshopperAsyncComponent;
 using Speckle.Core.Api;
 using Speckle.Core.Logging;
-using System;
-using System.Linq;
 
 namespace ConnectorGrasshopper.Conversion
 {
@@ -35,7 +36,7 @@ namespace ConnectorGrasshopper.Conversion
 
     protected override void BeforeSolveInstance()
     {
-      Tracker.TrackPageview("serialization", "deserialize");
+      Tracker.TrackPageview(Tracker.DESERIALIZE);
       base.BeforeSolveInstance();
     }
   }
@@ -55,7 +56,7 @@ namespace ConnectorGrasshopper.Conversion
     {
       try
       {
-        if (CancellationToken.IsCancellationRequested) return;
+        if (CancellationToken.IsCancellationRequested)return;
 
         int branchIndex = 0, completed = 0;
         foreach (var list in Objects.Branches)
@@ -63,7 +64,7 @@ namespace ConnectorGrasshopper.Conversion
           var path = Objects.Paths[branchIndex];
           foreach (var item in list)
           {
-            if (CancellationToken.IsCancellationRequested) return;
+            if (CancellationToken.IsCancellationRequested)return;
 
             try
             {
@@ -72,8 +73,9 @@ namespace ConnectorGrasshopper.Conversion
             }
             catch (Exception e)
             {
-              ConvertedObjects.Append(new GH_SpeckleBase { Value = null }, path);
-              Parent.AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, $"Object at {path} is not a Speckle object. Exception: {e.Message}.");
+              // Add null to objects to respect output paths.
+              ConvertedObjects.Append(null, path);
+              RuntimeMessages.Add((GH_RuntimeMessageLevel.Warning, $"Cannot deserialize object at path {path}[{list.IndexOf(item)}]: {e.Message}."));
             }
 
             ReportProgress(Id, ((completed++ + 1) / (double)Objects.Count()));
@@ -88,7 +90,7 @@ namespace ConnectorGrasshopper.Conversion
       {
         // If we reach this, something happened that we weren't expecting...
         Log.CaptureException(e);
-        Parent.AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "Something went terribly wrong... " + e.Message);
+        RuntimeMessages.Add((GH_RuntimeMessageLevel.Error, "Something went terribly wrong... " + e.Message));
         Parent.Message = "Error";
       }
     }
@@ -97,7 +99,7 @@ namespace ConnectorGrasshopper.Conversion
 
     public override void GetData(IGH_DataAccess DA, GH_ComponentParamServer Params)
     {
-      if (CancellationToken.IsCancellationRequested) return;
+      if (CancellationToken.IsCancellationRequested)return;
 
       GH_Structure<GH_String> _objects;
       DA.GetDataTree(0, out _objects);
@@ -108,15 +110,22 @@ namespace ConnectorGrasshopper.Conversion
         var path = _objects.Paths[branchIndex];
         foreach (var item in list)
         {
-          Objects.Append(item,path);
+          if(item.IsValid) Objects.Append(item, path);
+          else RuntimeMessages.Add((GH_RuntimeMessageLevel.Warning, $"Item at path {path}[{list.IndexOf(item)}][{list.IndexOf(item)}] is not valid."));
         }
         branchIndex++;
       }
     }
+    
+    List<(GH_RuntimeMessageLevel, string)> RuntimeMessages { get; set; } = new List<(GH_RuntimeMessageLevel, string)>();
 
     public override void SetData(IGH_DataAccess DA)
     {
-      if (CancellationToken.IsCancellationRequested) return;
+      if (CancellationToken.IsCancellationRequested)return;
+      foreach (var (level, message) in RuntimeMessages)
+      {
+        Parent.AddRuntimeMessage(level, message);
+      }
       DA.SetDataTree(0, ConvertedObjects);
     }
   }
