@@ -24,6 +24,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="ConverterRhinoGh\**" />
+    <EmbeddedResource Remove="ConverterRhinoGh\**" />
+    <None Remove="ConverterRhinoGh\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Grasshopper" Version="6.33.20343.16431" />
     <PackageReference Include="RhinoCommon" Version="6.33.20343.16431" />
   </ItemGroup>
