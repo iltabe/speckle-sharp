@@ -251,7 +251,7 @@ namespace SpeckleRhino
       };
 
       // get commit layer name 
-      var commitLayerName = Speckle.DesktopUI.Utils.Formatting.CommitLayer(stream.name, state.Branch.name, commitId);
+      var commitLayerName = Speckle.DesktopUI.Utils.Formatting.CommitInfo(stream.name, state.Branch.name, commitId);
 
       // give converter a way to access the base commit layer name
       RhinoDoc.ActiveDoc.Notes += "%%%" + commitLayerName;
@@ -295,8 +295,14 @@ namespace SpeckleRhino
         }
         else
         {
-          int totalMembers = @base.GetDynamicMembers().Count();
-          foreach (var prop in @base.GetDynamicMembers())
+          List<string> props = @base.GetDynamicMembers().ToList();
+          if (@base.GetMembers().ContainsKey("displayMesh")) // add display mesh to member list if it exists
+            props.Add("displayMesh");
+          else if (@base.GetMembers().ContainsKey("displayValue"))
+            props.Add("displayValue");
+          int totalMembers = props.Count;
+
+          foreach (var prop in props)
           {
             count++;
 
@@ -311,9 +317,9 @@ namespace SpeckleRhino
               foundConvertibleMember = true;
             }
           }
+
           if (!foundConvertibleMember && count == totalMembers) // this was an unsupported geo
           {
-            // try to get displaymesh instead
             state.Errors.Add(new Exception($"Receiving {@base.speckle_type} objects is not supported. Object {@base.id} not baked."));
           }
           return objects;
@@ -339,7 +345,7 @@ namespace SpeckleRhino
       return objects;
     }
 
-    // conversion and bake for non view objects
+    // conversion and bake
     private void BakeObject(Base obj, string layerPath, StreamState state, ISpeckleConverter converter)
     {
       var converted = converter.ConvertToNative(obj);
@@ -347,14 +353,24 @@ namespace SpeckleRhino
 
       if (convertedRH != null)
       {
-        Layer bakeLayer = Doc.GetLayer(layerPath, true);
-        if (bakeLayer != null)
+        if (convertedRH.IsValid)
         {
-          if (Doc.Objects.Add(convertedRH, new ObjectAttributes { LayerIndex = bakeLayer.Index }) == Guid.Empty)
-            state.Errors.Add(new Exception($"Failed to bake object {obj.id} of type {obj.speckle_type}."));
+          Layer bakeLayer = Doc.GetLayer(layerPath, true);
+          if (bakeLayer != null)
+          {
+            var attributes = new ObjectAttributes { LayerIndex = bakeLayer.Index };
+            string schema = obj["SpeckleSchema"] as string;
+            if (schema != null)
+              attributes.SetUserString("SpeckleSchema", schema);
+
+            if (Doc.Objects.Add(convertedRH, attributes) == Guid.Empty)
+              state.Errors.Add(new Exception($"Failed to bake object {obj.id} of type {obj.speckle_type}."));
+          }
+          else
+            state.Errors.Add(new Exception($"Could not create layer {layerPath} to bake objects into."));
         }
         else
-          state.Errors.Add(new Exception($"Could not create layer {layerPath} to bake objects into."));
+          state.Errors.Add(new Exception($"Failed to bake object {obj.id} of type {obj.speckle_type}: invalid object props"));
       }
       else if (converted == null)
       {
@@ -429,10 +445,7 @@ namespace SpeckleRhino
             }
 
             foreach (var key in obj.Attributes.GetUserStrings().AllKeys)
-            {
-              // TODO: check if this is a SchemaBuilder key and maybe omit?
-              converted[key] = obj.Attributes.GetUserString(key);
-            }
+                converted[key] = obj.Attributes.GetUserString(key);
 
             if (obj is InstanceObject)
               containerName = "Blocks";

@@ -61,6 +61,21 @@ namespace Objects.Converter.Revit
       return pointToSpeckle;
     }
 
+    public List<XYZ> PointListToNative(IEnumerable<double> arr, string units = null)
+    {
+      var coords = arr.ToList();
+      if (coords.Count % 3 != 0) throw new SpeckleException("Array malformed: length%3 != 0.");
+
+      var points = new List<XYZ>();
+      for (int i = 2; i < coords.Count; i += 3)
+        points.Add(new XYZ(
+          ScaleToNative(coords[i - 2], units ?? ModelUnits),
+          ScaleToNative(coords[i - 1], units ?? ModelUnits),
+          ScaleToNative(coords[i], units ?? ModelUnits)));
+
+      return points;
+    }
+
     public Vector VectorToSpeckle(XYZ pt, string units = null)
     {
       var u = units ?? ModelUnits;
@@ -153,8 +168,7 @@ namespace Objects.Converter.Revit
     {
       var u = units ?? ModelUnits;
       // see https://forums.autodesk.com/t5/revit-api-forum/how-to-retrieve-startangle-and-endangle-of-arc-object/td-p/7637128
-      var arcPlane = DB.Plane.CreateByNormalAndOrigin(arc.Normal, arc.Center);
-
+      var arcPlane = DB.Plane.CreateByOriginAndBasis(arc.Center, arc.XDirection, arc.YDirection);
       XYZ center = arc.Center;
 
       XYZ dir0 = (arc.GetEndPoint(0) - center).Normalize();
@@ -164,8 +178,8 @@ namespace Objects.Converter.Revit
       XYZ end = arc.Evaluate(1, true);
       XYZ mid = arc.Evaluate(0.5, true);
 
-      double startAngle = dir0.AngleOnPlaneTo(arc.XDirection, arc.Normal);
-      double endAngle = dir1.AngleOnPlaneTo(arc.XDirection, arc.Normal);
+      double startAngle = arc.XDirection.AngleOnPlaneTo(dir0, arc.Normal);
+      double endAngle = arc.XDirection.AngleOnPlaneTo(dir1, arc.Normal);
 
       var a = new Arc(PlaneToSpeckle(arcPlane, u), u == Units.None ? arc.Radius : ScaleToSpeckle(arc.Radius), startAngle, endAngle, endAngle - startAngle, u);
       a.endPoint = PointToSpeckle(end, u);
@@ -235,6 +249,8 @@ namespace Objects.Converter.Revit
       speckleCurve.units = units ?? ModelUnits;
       //speckleCurve.domain = new Interval(revitCurve.StartParameter(), revitCurve.EndParameter());
       speckleCurve.length = ScaleToSpeckle(revitCurve.Length);
+      var coords = revitCurve.Tessellate().SelectMany(xyz => PointToSpeckle(xyz, units).ToList()).ToArray();
+      speckleCurve.displayValue = new Polyline(coords, units);
 
       return speckleCurve;
     }
@@ -413,6 +429,45 @@ namespace Objects.Converter.Revit
       return curveArray;
     }
 
+
+    public Polyline PolylineToSpeckle(PolyLine polyline, string units = null)
+    {
+      var coords = polyline.GetCoordinates().SelectMany(coord => PointToSpeckle(coord).ToList());
+
+      return new Polyline(coords, units ?? ModelUnits);
+
+    }
+
+    public Box BoxToSpeckle(DB.BoundingBoxXYZ box, string units = null)
+    {
+      // convert min and max pts to speckle first
+      var min = PointToSpeckle(box.Min, units);
+      var max = PointToSpeckle(box.Max, units);
+
+      // get the base plane of the bounding box from the transform
+      var transform = box.Transform;
+      var plane = DB.Plane.CreateByOriginAndBasis(transform.Origin, transform.BasisX.Normalize(), transform.BasisY.Normalize());
+
+      var _box = new Box()
+      {
+        xSize = new Interval(min.x, max.x),
+        ySize = new Interval(min.y, max.y),
+        zSize = new Interval(min.z, max.z),
+        basePlane = PlaneToSpeckle(plane),
+        units = units ?? ModelUnits
+      };
+
+      return _box;
+    }
+
+    public DB.BoundingBoxXYZ BoxToNative(Box box)
+    {
+      var boundingBox = new BoundingBoxXYZ();
+      boundingBox.Min = PointToNative(new Point((double)box.xSize.start, (double)box.ySize.start, (double)box.zSize.start));
+      boundingBox.Max = PointToNative(new Point((double)box.xSize.end, (double)box.ySize.end, (double)box.zSize.end));
+      return boundingBox;
+    }
+
     public Mesh MeshToSpeckle(DB.Mesh mesh, string units = null)
     {
       var speckleMesh = new Mesh();
@@ -429,8 +484,10 @@ namespace Objects.Converter.Revit
         var B = triangle.get_Index(1);
         var C = triangle.get_Index(2);
         speckleMesh.faces.Add(0);
-        speckleMesh.faces.AddRange(new int[] {
-          (int)A, (int)B, (int)C });
+        speckleMesh.faces.AddRange(new int[]
+        {
+          (int)A, (int)B, (int)C
+        });
       }
 
       speckleMesh.units = units ?? ModelUnits;
@@ -442,10 +499,10 @@ namespace Objects.Converter.Revit
     public IList<GeometryObject> MeshToNative(Mesh mesh, TessellatedShapeBuilderTarget target = TessellatedShapeBuilderTarget.Mesh, TessellatedShapeBuilderFallback fallback = TessellatedShapeBuilderFallback.Salvage)
     {
       var tsb = new TessellatedShapeBuilder() { Fallback = fallback, Target = target, GraphicsStyleId = ElementId.InvalidElementId };
-      
+
       var valid = tsb.AreTargetAndFallbackCompatible(target, fallback);
       tsb.OpenConnectedFaceSet(target == TessellatedShapeBuilderTarget.Solid);
-      
+
       var vertices = ArrayToPoints(mesh.vertices, mesh.units);
 
       int i = 0;
@@ -527,7 +584,7 @@ namespace Objects.Converter.Revit
     public Geometry.Surface FaceToSpeckle(DB.Face face, DB.BoundingBoxUV uvBox, string units = null)
     {
 
-#if REVIT2021
+#if (REVIT2021 || REVIT2022)
       var surf = DB.ExportUtils.GetNurbsSurfaceDataForSurface(face.GetSurface());
 #else
       var surf = DB.ExportUtils.GetNurbsSurfaceDataForFace(face);

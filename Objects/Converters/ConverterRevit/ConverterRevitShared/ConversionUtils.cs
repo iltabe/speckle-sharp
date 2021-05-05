@@ -222,7 +222,7 @@ namespace Objects.Converter.Revit
         isShared = rp.IsShared,
         isReadOnly = rp.IsReadOnly,
         isTypeParameter = isTypeParameter,
-        revitUnitType = rp.Definition.UnitType.ToString() //eg UT_Length
+        revitUnitType = rp.GetUnityTypeString() //eg UT_Length
       };
 
       switch (rp.StorageType)
@@ -232,8 +232,8 @@ namespace Objects.Converter.Revit
           var val = rp.AsDouble();
           try
           {
-            sp.revitUnit = rp.DisplayUnitType.ToString(); //eg DUT_MILLIMITERS, this can throw!
-            sp.value = UnitUtils.ConvertFromInternalUnits(val, rp.DisplayUnitType);
+            sp.revitUnit = rp.GetDisplayUnityTypeString(); //eg DUT_MILLIMITERS, this can throw!
+            sp.value = RevitVersionHelper.ConvertFromInternalUnits(val, rp);
           }
           catch
           {
@@ -310,12 +310,13 @@ namespace Objects.Converter.Revit
             case StorageType.Double:
               if (!string.IsNullOrEmpty(sp.revitUnit))
               {
-                Enum.TryParse(sp.revitUnit, out DisplayUnitType sourceUnit);
-                var val = UnitUtils.ConvertToInternalUnits(Convert.ToDouble(sp.value), sourceUnit);
+                var val = RevitVersionHelper.ConvertToInternalUnits(sp);
                 rp.Set(val);
               }
               else
+              {
                 rp.Set(Convert.ToDouble(sp.value));
+              }
               break;
 
             case StorageType.Integer:
@@ -377,7 +378,7 @@ namespace Objects.Converter.Revit
         //for angles, we use the default conversion (degrees > radians)
         if (string.IsNullOrEmpty(units))
         {
-          param.Set(ScaleToNative(value, param.DisplayUnitType));
+          param.Set(value);
         }
         else
         {
@@ -736,6 +737,14 @@ namespace Objects.Converter.Revit
       return false;
     }
 
+    #endregion
+
+    #region misc
+    public string Replace(string s, char[] separators, string newVal)
+    {
+      string[] _string = s.Split(separators, StringSplitOptions.RemoveEmptyEntries);
+      return String.Join(newVal, _string);
+    }
     #endregion
 
     public WallLocationLine GetWallLocationLine(LocationLine location)

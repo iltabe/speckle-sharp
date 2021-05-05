@@ -13,7 +13,7 @@
     <Product>Objects.Converter.DynamoRevit</Product>
     <Version>2.1.0</Version>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
-    <Description>Converter for DynamoRevit</Description>
+    <Description>Converter for Dynamo for Revit 2019 and 2020</Description>
     <PackageTags>speckle objects converter dynamo revit</PackageTags>
     <RepositoryUrl>https://github.com/specklesystems/speckle-sharp</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
@@ -23,18 +23,16 @@
     <LangVersion>8.0</LangVersion>
   </PropertyGroup>
 
-
+<!-- Revit 2019 and 2020 use Dynamo 2.0-2.1 -->
   <ItemGroup>
-    <PackageReference Include="DynamoVisualProgramming.Core" Version="2.8.0.2471">
+    <PackageReference Include="DynamoVisualProgramming.Core" Version="2.1.0.7465">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="DynamoVisualProgramming.DynamoServices" Version="2.8.0.2471" />
-    <PackageReference Include="DynamoVisualProgramming.ZeroTouchLibrary" Version="2.8.0.2471">
+    <PackageReference Include="DynamoVisualProgramming.DynamoServices" Version="2.1.0.7465" />
+    <PackageReference Include="DynamoVisualProgramming.ZeroTouchLibrary" Version="2.1.0.7465">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="ModPlus.Revit.API.2021" Version="1.0.0">
-      <PrivateAssets>all</PrivateAssets>
-    </PackageReference>
+    <PackageReference Include="ModPlus.Revit.API.2020" Version="1.0.0" />
   </ItemGroup>
 
   <ItemGroup>
