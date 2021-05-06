@@ -142,9 +142,24 @@ namespace ConnectorGrasshopper.Extras
       var copy = @base.ShallowCopy();
       copy.GetMembers().ToList().ForEach(keyval =>
       {
-        var goo = TryConvertItemToNative(keyval.Value, converter, true);
-        var value = goo.GetType().GetProperty("Value")?.GetValue(goo);
-        copy[keyval.Key] = value;
+        if (keyval.Value is IList list)
+        {
+          var converted = new List<object>();
+          foreach (var item in list)
+          {
+            var goo = TryConvertItemToNative(item, converter, true);
+            var value = goo.GetType().GetProperty("Value")?.GetValue(goo);
+            converted.Add(value);
+          }
+
+          copy[keyval.Key] = converted;
+        }
+        else
+        {
+          var goo = TryConvertItemToNative(keyval.Value, converter, true);
+          var value = goo.GetType().GetProperty("Value")?.GetValue(goo);
+          copy[keyval.Key] = value;
+        }
       });
       return copy;
     }
@@ -164,7 +179,19 @@ namespace ConnectorGrasshopper.Extras
       var copy = @base.ShallowCopy();
       copy.GetMembers().ToList().ForEach(keyval =>
       {
-        copy[keyval.Key] = TryConvertItemToSpeckle(keyval.Value, converter, true);
+        if (keyval.Value is IList list)
+        {
+          var converted = new List<object>();
+          foreach (var item in list)
+          {
+            var conv = TryConvertItemToSpeckle(item, converter, true);
+            converted.Add(conv);
+          }
+
+          copy[keyval.Key] = converted;
+        }
+        else
+          copy[keyval.Key] = TryConvertItemToSpeckle(keyval.Value, converter, true);
       });
       return copy;
     }
