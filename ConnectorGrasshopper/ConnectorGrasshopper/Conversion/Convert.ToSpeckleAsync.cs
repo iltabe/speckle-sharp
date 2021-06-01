@@ -23,6 +23,8 @@ namespace ConnectorGrasshopper.Conversion
 
     protected override System.Drawing.Bitmap Icon => Properties.Resources.ToSpeckle;
 
+    public override bool CanDisableConversion => false;
+
     public override GH_Exposure Exposure => GH_Exposure.primary;
 
 
@@ -114,6 +116,11 @@ namespace ConnectorGrasshopper.Conversion
     {
       if (CancellationToken.IsCancellationRequested)return;
       
+      // Report all conversion errors as warnings
+      foreach (var error in Converter.ConversionErrors)
+      {
+        Parent.AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, error.Message + ": " + error.InnerException?.Message);
+      }
       
       foreach (var (level, message) in RuntimeMessages)
       {

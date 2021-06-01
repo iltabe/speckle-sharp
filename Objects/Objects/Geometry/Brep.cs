@@ -32,9 +32,12 @@ namespace Objects.Geometry
       get
       {
         var list = new List<double>();
-        foreach(var srf in Surfaces)
+        if (Surfaces != null)
         {
-          list.AddRange(srf.ToList());
+          foreach (var srf in Surfaces)
+          {
+            list.AddRange(srf.ToList());
+          }
         }
         return list;
       }
@@ -263,7 +266,7 @@ namespace Objects.Geometry
     None = 0,
     Inward = -1,
     Outward = 1,
-    Unkown = 2
+    Unknown = 2
   }
 
   /// <summary>

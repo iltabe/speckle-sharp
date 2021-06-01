@@ -157,17 +157,22 @@ public static string AutocadAppName = Applications.Autocad2022;
         case Curve o:
           return CurveToNativeDB(o);
 
-        //case Surface o: // TODO: NOT TESTED
+          /*
+        //case Surface o: 
         //  return SurfaceToNative(o);
 
-        //case Brep o: // TODO: NOT TESTED
-        //  return BrepToNativeDB(o);
+        case Brep o:
+          if (o.displayMesh != null)
+            return MeshToNativeDB(o.displayMesh);
+          else
+            return null;
 
         //case Mesh o: // unstable, do not use for now
         //  return MeshToNativeDB(o);
+        */
 
         case BlockInstance o:
-          return BlockInstanceToNativeDB(o);
+          return BlockInstanceToNativeDB(o, out BlockReference refernce);
 
         case BlockDefinition o:
           return BlockDefinitionToNativeDB(o);
@@ -220,17 +225,20 @@ public static string AutocadAppName = Applications.Autocad2022;
         case AcadDB.Polyline2d o:
           return PolycurveToSpeckle(o);
 
-        case PlaneSurface o:
-          return SurfaceToSpeckle(o);
+        case Region o:
+          return RegionToSpeckle(o);
 
-         case AcadDB.NurbSurface o:
-           return SurfaceToSpeckle(o);
+        case AcadDB.Surface o:
+          return SurfaceToSpeckle(o);
 
         case AcadDB.PolyFaceMesh o:
           return MeshToSpeckle(o);
 
         case SubDMesh o:
           return MeshToSpeckle(o);
+
+        case Solid3d o:
+          return SolidToSpeckle(o);
 
         case BlockReference o:
           return BlockReferenceToSpeckle(o);
@@ -239,8 +247,23 @@ public static string AutocadAppName = Applications.Autocad2022;
           return BlockRecordToSpeckle(o);
 
 #if (CIVIL2021 || CIVIL2022)
+        case CivilDB.Alignment o:
+          return AlignmentToSpeckle(o);
+
         case CivilDB.FeatureLine o:
           return FeatureLineToSpeckle(o);
+
+        case CivilDB.Structure o:
+          return StructureToSpeckle(o);
+
+        case CivilDB.Pipe o:
+          return PipeToSpeckle(o);
+
+        case CivilDB.Profile o:
+          return ProfileToSpeckle(o);
+
+        case CivilDB.TinSurface o:
+          return SurfaceToSpeckle(o);
 #endif
 
         default:
@@ -256,81 +279,50 @@ public static string AutocadAppName = Applications.Autocad2022;
           switch (o)
           {
             case DBPoint _:
-              return true;
-
             case AcadDB.Line _:
-              return true;
-
             case AcadDB.Arc _:
-              return true;
-
             case AcadDB.Circle _:
-              return true;
-
             case AcadDB.Ellipse _:
-              return true;
-
             case AcadDB.Spline _:
-              return true;
-
             case AcadDB.Polyline _:
-              return true;
-
             case AcadDB.Polyline2d _:
-              return true;
-
             case AcadDB.Polyline3d _:
-              return true;
-
-            case AcadDB.PlaneSurface _:
-              return true;
-
-            case AcadDB.NurbSurface _:
-              return true;
-
+            case AcadDB.Surface _:
             case AcadDB.PolyFaceMesh _:
-              return true;
-
+            case AcadDB.Region _:
             case SubDMesh _:
+            case Solid3d _:
               return true;
 
             case BlockReference _:
-              return true;
-
             case BlockTableRecord _:
               return true;
+
+#if (CIVIL2021 || CIVIL2022)
+            case CivilDB.FeatureLine _:
+            case CivilDB.Structure _:
+            case CivilDB.Alignment _:
+            case CivilDB.Pipe _:
+            case CivilDB.Profile _:
+            case CivilDB.TinSurface _:
+              return true;
+#endif
 
             default:
               return false;
           }
 
         case Acad.Geometry.Point3d _:
-          return true;
-
         case Acad.Geometry.Vector3d _:
-          return true;
-
         case Acad.Geometry.Plane _:
-          return true;
-
         case Acad.Geometry.Line3d _:
-          return true;
-
         case Acad.Geometry.LineSegment3d _:
-          return true;
-
         case Acad.Geometry.CircularArc3d _:
-          return true;
-
         case Acad.Geometry.Curve3d _:
           return true;
 
-        case Acad.Geometry.NurbSurface _:
-          return false;
-
         default:
           return false;
-
       }
     }
 
@@ -339,41 +331,17 @@ public static string AutocadAppName = Applications.Autocad2022;
       switch (@object)
       {
         case Point _:
-          return true;
-
         case Line _:
-          return true;
-
         case Arc _:
-          return true;
-
-        case Circle _:
-          return true;
-
+        case Circle _:  
         case Ellipse _:
-          return true;
-
         case Polyline _:
-          return true;
-
         case Polycurve _:
-          return true;
-
         case Curve _:
-          return true;
-
-        case Surface _:
-          return false;
-
-        case Brep _:
-          return false;
-
-        case Mesh _:
-          return false;
+        //case Brep _:
+        //case Mesh _:
 
         case BlockDefinition _:
-          return true;
-
         case BlockInstance _:
           return true;
 

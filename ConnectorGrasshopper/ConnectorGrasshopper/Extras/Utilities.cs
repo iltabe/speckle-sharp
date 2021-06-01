@@ -1,4 +1,4 @@
-﻿using Grasshopper.Kernel.Types;
+using Grasshopper.Kernel.Types;
 using Speckle.Core.Kits;
 using Speckle.Core.Models;
 using System;
@@ -57,9 +57,9 @@ namespace ConnectorGrasshopper.Extras
           OnConversionProgress?.Invoke();
           leaves.Add(TryConvertItemToSpeckle(goo, converter, true));
         }
-
         RecurseTreeToList(output, path, 0, leaves);
       }
+      OnConversionProgress?.Invoke();
 
       return output;
     }
@@ -142,6 +142,7 @@ namespace ConnectorGrasshopper.Extras
       var copy = @base.ShallowCopy();
       copy.GetMembers().ToList().ForEach(keyval =>
       {
+        // TODO: Handle dicts!!!
         if (keyval.Value is IList list)
         {
           var converted = new List<object>();
@@ -152,6 +153,15 @@ namespace ConnectorGrasshopper.Extras
             converted.Add(value);
           }
 
+          copy[keyval.Key] = converted;
+        }
+        else if (typeof(IDictionary).IsAssignableFrom(keyval.Value.GetType()))
+        {
+          var converted = new Dictionary<string, object>();
+          foreach (DictionaryEntry kvp in keyval.Value as IDictionary)
+          {
+            converted[kvp.Key.ToString()] = TryConvertItemToNative(kvp.Value, converter, true);
+          }
           copy[keyval.Key] = converted;
         }
         else
@@ -171,7 +181,7 @@ namespace ConnectorGrasshopper.Extras
     /// <param name="base">Base object</param>
     /// <param name="converter">Converter instance to use.</param>
     /// <returns>A shallow copy of the base object with compatible values converted to Speckle entities.</returns>
-    public static Base TraverseAndConvertToSpeckle(Base @base, ISpeckleConverter converter)
+    public static Base TraverseAndConvertToSpeckle(Base @base, ISpeckleConverter converter,  Action OnConversionProgress = null)
     {
       var subclass = @base.GetType().IsSubclassOf(typeof(Base));
       if (subclass) 
@@ -179,6 +189,7 @@ namespace ConnectorGrasshopper.Extras
       var copy = @base.ShallowCopy();
       copy.GetMembers().ToList().ForEach(keyval =>
       {
+        // TODO: Handle dicts!!
         if (keyval.Value is IList list)
         {
           var converted = new List<object>();
@@ -188,6 +199,14 @@ namespace ConnectorGrasshopper.Extras
             converted.Add(conv);
           }
 
+          copy[keyval.Key] = converted;
+        } else if (typeof(IDictionary).IsAssignableFrom(keyval.Value.GetType()))
+        {
+          var converted = new Dictionary<string, object>();
+          foreach(DictionaryEntry kvp in keyval.Value as IDictionary)
+          {
+            converted[kvp.Key.ToString()] = TryConvertItemToSpeckle(kvp.Value, converter, true);
+          }
           copy[keyval.Key] = converted;
         }
         else
@@ -205,6 +224,7 @@ namespace ConnectorGrasshopper.Extras
     /// <returns>An <see cref="IGH_Goo"/> instance holding the converted object. </returns>
     public static IGH_Goo TryConvertItemToNative(object value, ISpeckleConverter converter, bool recursive = false)
     {
+      if (converter == null) return new GH_ObjectWrapper(value);
       if (value == null)
         return null;
 
@@ -217,12 +237,19 @@ namespace ConnectorGrasshopper.Extras
       {
         if (converter.CanConvertToNative(@base))
         {
-          var converted = converter.ConvertToNative(@base);
-          var geomgoo = GH_Convert.ToGoo(converted);
-          if (geomgoo != null) 
-            return geomgoo;
-          var goo = new GH_ObjectWrapper { Value = converted };
-          return goo;
+          try
+          {
+            var converted = converter.ConvertToNative(@base);
+            var geomgoo = GH_Convert.ToGoo(converted);
+            if (geomgoo != null) 
+              return geomgoo;
+            var goo = new GH_ObjectWrapper { Value = converted };
+            return goo;
+          }
+          catch (Exception e)
+          {
+            converter.ConversionErrors.Add(new Exception($"Could not convert {@base}", e));
+          }
         }
         if(recursive)
         {
@@ -256,10 +283,8 @@ namespace ConnectorGrasshopper.Extras
     /// <param name="converter">Converter instance to use.</param>
     /// <param name="recursive">Indicates if any non-convertible <see cref="Base"/> instances should be traversed too.</param>
     /// <returns>An <see cref="IGH_Goo"/> instance holding the converted object. </returns>
-    public static object TryConvertItemToSpeckle(object value, ISpeckleConverter converter, bool recursive = false)
+    public static object TryConvertItemToSpeckle(object value, ISpeckleConverter converter, bool recursive = false,  Action OnConversionProgress = null)
     {
-      object result = null;
-
       if (value is null) throw new Exception("Null values are not allowed, please clean your data tree.");
       
       if (value is IGH_Goo)
@@ -270,12 +295,24 @@ namespace ConnectorGrasshopper.Extras
       if (value.GetType().IsSimpleType()) 
         return value;
       
+
       if (converter.CanConvertToSpeckle(value))
       {
         return converter.ConvertToSpeckle(value);
       }
-      if (recursive && value is Base @base) 
+      
+      var subclass = value.GetType().IsSubclassOf(typeof(Base));
+      if (subclass)
+      {
+        // TODO: Traverse through dynamic props only.
+        return value;
+      }
+      
+      if (recursive && value is Base @base)
+      {
         return TraverseAndConvertToSpeckle(@base, converter);
+      }
+      
       if (value is Base @base2)
         return @base2;
       

@@ -272,6 +272,10 @@ namespace Objects.Converter.RhinoGh
       RH.Arc arc = new RH.Arc(PlaneToNative(a.plane), ScaleToNative((double)a.radius, a.units), (double)a.angleRadians);
       arc.StartAngle = (double)a.startAngle;
       arc.EndAngle = (double)a.endAngle;
+      if (!arc.IsValid) // try with different method if not valid
+      {
+        arc = new RH.Arc(PointToNative(a.startPoint).Location, PointToNative(a.midPoint).Location, PointToNative(a.endPoint).Location);
+      }
       var myArc = new ArcCurve(arc);
 
       if (a.domain != null)
@@ -461,7 +465,7 @@ namespace Objects.Converter.RhinoGh
     public ICurve CurveToSpeckle(RH.Curve curve, string units = null)
     {
       var u = units ?? ModelUnits;
-      var tolerance = 0.0;
+      var tolerance = RhinoDoc.ActiveDoc.ModelAbsoluteTolerance;
       Rhino.Geometry.Plane pln = Rhino.Geometry.Plane.Unset;
       curve.TryGetPlane(out pln, tolerance);
       
@@ -732,7 +736,7 @@ namespace Objects.Converter.RhinoGh
       // }
       // Create complex
       var joinedMesh = new RH.Mesh();
-      var mySettings = MeshingParameters.FastRenderMesh;
+      var mySettings = MeshingParameters.Minimal;
       joinedMesh.Append(RH.Mesh.CreateFromBrep(brep, mySettings));
       joinedMesh.Weld(Math.PI);
       joinedMesh.Vertices.CombineIdentical(true, true);
@@ -757,8 +761,12 @@ namespace Objects.Converter.RhinoGh
 
             // If the curve has invalid multiplicity and is not closed, rebuild with same number of points and degree.
             // TODO: Figure out why closed curves don't like this hack?
-            if (invalid && !nurbsCurve.IsClosed)
-              nurbsCurve = nurbsCurve.Rebuild(nurbsCurve.Points.Count, nurbsCurve.Degree, true);
+            if (invalid )
+            {
+              nurbsCurve = nurbsCurve.Rebuild(nurbsCurve.Points.Count * 3, nurbsCurve.Degree, true);;
+              var in1 = HasInvalidMultiplicity(nurbsCurve);
+              Console.WriteLine(in1);
+            }
             nurbsCurve.Domain = curve3d.Domain;
             crv = nurbsCurve;
           }
@@ -769,11 +777,20 @@ namespace Objects.Converter.RhinoGh
         }).ToList();
       spcklBrep.Curve2D = brep.Curves2D.ToList().Select(c =>
       {
-        var nurbsCurve = c.ToNurbsCurve();
-        //nurbsCurve.Knots.RemoveMultipleKnots(1, nurbsCurve.Degree, Doc.ModelAbsoluteTolerance );
-        var rebuild = nurbsCurve.Rebuild(nurbsCurve.Points.Count, nurbsCurve.Degree, true);
+        var curve = c;
+        if (c is NurbsCurve nurbsCurve)
+        {
+          var invalid = HasInvalidMultiplicity(nurbsCurve);
+          if (invalid)
+          {
+            //nurbsCurve = nurbsCurve.Fit(nurbsCurve.Degree, 0, 0).ToNurbsCurve();
+            nurbsCurve = nurbsCurve.Rebuild(nurbsCurve.Points.Count * 3, nurbsCurve.Degree, true);
+            var in1 = HasInvalidMultiplicity(nurbsCurve);
+          }
 
-        var crv = CurveToSpeckle(rebuild, Units.None);
+          curve = nurbsCurve;
+        }
+        var crv = CurveToSpeckle(c, Units.None);
         return crv;
       }).ToList();
       spcklBrep.Surfaces = brep.Surfaces
@@ -1060,14 +1077,15 @@ namespace Objects.Converter.RhinoGh
         points.Count, points[0].Count);
 
       // Set knot vectors
-      for (int i = 0; i < surface.knotsU.Count; i++)
+      var correctUKnots = GetCorrectKnots(surface.knotsU, surface.countU, surface.degreeU);
+      for (int i = 0; i < correctUKnots.Count; i++)
       {
-        result.KnotsU[i] = surface.knotsU[i];
+        result.KnotsU[i] = correctUKnots[i];
       }
-
-      for (int i = 0; i < surface.knotsV.Count; i++)
+      var correctVKnots = GetCorrectKnots(surface.knotsV, surface.countV, surface.degreeV);
+      for (int i = 0; i < correctVKnots.Count; i++)
       {
-        result.KnotsV[i] = surface.knotsV[i];
+        result.KnotsV[i] = correctVKnots[i];
       }
 
       // Set control points
@@ -1125,6 +1143,18 @@ namespace Objects.Converter.RhinoGh
       result.bbox = BoxToSpeckle(new RH.Box(surface.GetBoundingBox(true)), u);
 
       return result;
+    }
+
+    private List<double> GetCorrectKnots(List<double> knots, int controlPointCount, int degree)
+    {
+      var correctKnots = knots;
+      if (knots.Count == controlPointCount + degree + 1)
+      {
+        correctKnots.RemoveAt(0);
+        correctKnots.RemoveAt(correctKnots.Count - 1);
+      }
+
+      return correctKnots;
     }
   }
 }
