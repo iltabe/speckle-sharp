@@ -112,6 +112,9 @@ namespace Objects.Converter.Revit
         case DB.RoofBase o:
           returnObject = RoofToSpeckle(o);
           break;
+        case DB.Area o:
+          returnObject = AreaToSpeckle(o);
+          break;
         case DB.Architecture.Room o:
           returnObject = RoomToSpeckle(o);
           break;
@@ -156,11 +159,17 @@ namespace Objects.Converter.Revit
         case DB.Ceiling o:
           returnObject = CeilingToSpeckle(o);
           break;
+        case DB.PointCloudInstance o:
+          returnObject = PointcloudToSpeckle(o);
+          break;
         case DB.ProjectInfo o:
           returnObject = ProjectInfoToSpeckle(o);
           break;
         case DB.ElementType o:
           returnObject = ElementTypeToSpeckle(o);
+          break;
+        case DB.Grid o:
+          returnObject = GridLineToSpeckle(o);
           break;
         default:
           // if we don't have a direct conversion, still try to send this element as a generic RevitElement
@@ -295,6 +304,12 @@ namespace Objects.Converter.Revit
         case BE.View3D o:
           return ViewToNative(o);
 
+        case BE.Room o:
+          return RoomToNative(o);
+
+        case BE.GridLine o:
+          return GridLineToNative(o);
+
         // other
         case Other.BlockInstance o:
           return BlockInstanceToNative(o);
@@ -322,6 +337,7 @@ namespace Objects.Converter.Revit
         DB.ModelCurve _ => true,
         DB.Opening _ => true,
         DB.RoofBase _ => true,
+        DB.Area _ => true,
         DB.Architecture.Room _ => true,
         DB.Architecture.TopographySurface _ => true,
         DB.Wall _ => true,
@@ -336,9 +352,11 @@ namespace Objects.Converter.Revit
         DB.Architecture.Railing _ => true,
         DB.Architecture.TopRail _ => true,
         DB.Ceiling _ => true,
+        DB.PointCloudInstance _ => true,
         DB.Group _ => true,
         DB.ProjectInfo _ => true,
         DB.ElementType _ => true,
+        DB.Grid _ => true,
         _ => (@object as Element).IsElementSupported()
       };
     }
@@ -381,6 +399,8 @@ namespace Objects.Converter.Revit
         BE.Revit.RevitRailing _ => true,
         BER.ParameterUpdater _ => true,
         BE.View3D _ => true,
+        BE.Room _ => true,
+        BE.GridLine _ => true,
         Other.BlockInstance _ => true,
         _ => false
 
